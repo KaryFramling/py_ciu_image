@@ -30,6 +30,6 @@ image_output = ciu_object.CIU_Explanation()
 toc = time.perf_counter()
 print(f"Done in {toc - tic:0.4f} seconds")
 
-plt.imshow(image)
+plt.imshow(image_output)
 plt.show()
 ```
