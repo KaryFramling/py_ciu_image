@@ -113,7 +113,6 @@ class CIU:
         if self.normalize:
             img = image / 255
 
-        first = img
         cu_val = cu
         pert_val = pred
 
