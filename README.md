@@ -33,3 +33,10 @@ print(f"Done in {toc - tic:0.4f} seconds")
 plt.imshow(image_output)
 plt.show()
 ```
+# Contributors
+
+- [Kary Främling](https://github.com/KaryFramling): CIU "inventor", programmer of the initial [ciu.image code in "R"](https://github.com/KaryFramling/ciu.image)
+- Vlad Apopei: Finalisation, programming and packaging of py.ciu.image.
+- Rohit Saluja: Initial implementation of py.ciu.image.
+- Manik Madhikermi: Support and testing. 
+- Avleen Malhi: Initiator and co-ordinator of medical image explanation work. 
