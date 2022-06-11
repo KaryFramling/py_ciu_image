@@ -37,6 +37,6 @@ plt.show()
 
 - [Kary Främling](https://github.com/KaryFramling): CIU "inventor", programmer of the initial [ciu.image code in "R"](https://github.com/KaryFramling/ciu.image)
 - Vlad Apopei: Finalisation, programming and packaging of py.ciu.image.
-- Rohit Saluja: Initial implementation of py.ciu.image.
+- [Rohit Saluja](https://github.com/rohitsaluja1): Programming of the implementation of py.ciu.image.
 - Manik Madhikermi: Support and testing. 
 - Avleen Malhi: Initiator and co-ordinator of medical image explanation work. 
