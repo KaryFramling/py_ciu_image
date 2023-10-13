@@ -5,7 +5,7 @@ Contextual Importance and Utility (CIU) for image explanation
 
 CIU was developed by Kary Främling in his PhD thesis *Learning and Explaining Preferences with Neural Networks for Multiple Criteria Decision Making*, (written in French, title *Modélisation et apprentissage des préférences par réseaux de neurones pour l'aide à la décision multicritère*), available online for instance here: https://tel.archives-ouvertes.fr/tel-00825854/document. It was originally implemented in Matlab and has later been re-implemented in Python and R (package `ciu`) for tabular data. 
 
-This `ciu.image` package implements CIU for image recognition "explanation" using e.g. saliency maps. 
+This `py.ciu.image` package implements CIU for image recognition "explanation" using e.g. saliency maps. 
 
 # Installation
 
@@ -13,11 +13,16 @@ The installation process is quite straightforward. Simply use `pip install` to o
 
 # Running
 
+Check out the [README_notebook.ipynb](README_notebook.ipynb) notebook for the most recent examples and for running it yourself. 
+
+
 Below a simple example is shown using an endoscopy image. 
 
 ``` python
 import time
 import matplotlib.pyplot as plt
+import tensorflow as tf
+from CIU import CIU
 
 model = tf.keras.models.load_model("model_full_categorical.h5")
 image_path = "Set1_674.png"
@@ -33,6 +38,7 @@ print(f"Done in {toc - tic:0.4f} seconds")
 plt.imshow(image_output)
 plt.show()
 ```
+
 # Contributors
 
 - [Kary Främling](https://github.com/KaryFramling): CIU "inventor", programmer of the initial [ciu.image code in "R"](https://github.com/KaryFramling/ciu.image)

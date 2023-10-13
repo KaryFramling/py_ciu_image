@@ -66,7 +66,7 @@ class CIU:
             image,
             n_segments=self.segments,
             compactness=self.compactness,
-            max_iter=85,
+            # max_iter=85,
             start_label=0,
         )
 
