@@ -12,57 +12,49 @@ class CIU:
         self,
         model,
         out_names,
-        path,
-        size,
-        normalize,
-        segments=None,
-        compactness=None,
-        strategy=None,
-        CI=None,
-        CU=None,
-        debug=None,
+        predict_function=None,
+        background_color=(190,190,190),
+        normalize=True,
+        segments=50,
+        compactness=10,
+        strategy="inverse",
+        CI=0.01,
+        CU=0.5,
+        debug=False,
     ):
         """
         @param model: TF/Keras model to be used.
         @param list out_names: List of output class names to be used.
-        @param str path: The path of the image to be used.
-        @param tuple size: The target size of the image.
+        @param predict.function: Function that takes a list of images and return a numpy.ndarray with output probabilities. 
         @param bool normalize: Whether the image input will be normalized to values between 0 an 1.
         @param int segments: The amount of target segments to be used by the SLIC algorithm. The default is 50.
         @param int compactness: The compactness of the segments accounting for proximity or RGB values. The default is 10
         and logarithmic.
         @param str strategy: Defines CIU strategy. Either "straight" or "inverse". The default is "inverse".
         @param float CI: Defines CI threshold to be used. The default is 0.01.
-        @param float CU: Defines CU threshold to be used. The default is 0.1.
+        @param float CU: Defines CU threshold to be used. The default is 0.?.
         @param bool debug: Displays variables for debugging purposes. The default is False.
         """
 
         self.model = model
         self.out_names = out_names
-        self.path = path
-        self.size = size
+        self.predict_function = predict_function if predict_function is not None else model.predict_on_batch
+        self.background_color = np.array(background_color) # Easier to deal with np.array
+        if normalize:
+            self.background_color = self.background_color/255
         self.normalize = normalize
-        self.segments = segments if segments is not None else 50
-        self.compactness = compactness if compactness is not None else 10
-        self.strategy = strategy if strategy is not None else "inverse"
-        self.CI = CI if CI is not None else 0.01
-        self.CU = CU if CU is not None else 0.1
-        self.debug = debug if debug is not None else False
+        self.segments = segments
+        self.compactness = compactness
+        self.strategy = strategy
+        self.CI = CI
+        self.CU = CU
+        self.debug = debug
 
-    def image(self):
-        img = cv2.imread(self.path)
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        img = cv2.resize(img, self.size, 3)
-        img = img.reshape(-1, self.size[0], self.size[1], 3)
-
-        if self.debug:
-            plt.imshow(img[0])
-            plt.show()
-
-        return img
+        self.image = None
+        self.superpixels = None
 
     def segmented(self, image):
-        segments = slic(
+        self.superpixels = slic(
             image,
             n_segments=self.segments,
             compactness=self.compactness,
@@ -70,15 +62,15 @@ class CIU:
             start_label=0,
         )
 
-        if self.debug:
-            for i in range(50):
-                fig = plt.figure("Superpixels -- %d segments" % 50)
-                ax = fig.add_subplot(1, 1, 1)
-                ax.imshow(mark_boundaries(image[0], segments[0]))
-                plt.axis("off")
-            plt.show()
+        #if self.debug:
+        #    for i in range(50):
+        #        fig = plt.figure("Superpixels -- %d segments" % 50)
+        #        ax = fig.add_subplot(1, 1, 1)
+        #        ax.imshow(mark_boundaries(image[0], segments[0]))
+        #        plt.axis("off")
+        #    plt.show()
 
-        return segments
+        return self.superpixels
 
     def ciu_image_result(self, ci, cu, cmin, cmax, outval, out_names):
         data = {
@@ -95,23 +87,20 @@ class CIU:
 
     def perturbed_images(self, image, ind_inputs_to_explain, segments):
         if self.normalize:
-            img = image / 255
+            image = image / 255
 
-        fudged_image = img
+        fudged_image = image
 
         for x in ind_inputs_to_explain:
-          if self.normalize:
-              fudged_image[segments == x] = (190 / 255, 190 / 255, 190 / 255)
-          else:
-              fudged_image[segments == x] = (190, 190, 190)
-          
-        fudged_image_reshape = fudged_image.reshape(-1, self.size[0], self.size[1], 3)
+              fudged_image[segments == x] = self.background_color
+        
+        fudged_image_reshape = fudged_image.reshape(-1, self.image_shape[0], self.image_shape[1], self.image_shape[2])
 
         return fudged_image_reshape
 
     def explain_rgb(self, image, cu, pred):
         if self.normalize:
-            img = image / 255
+            image = image / 255
 
         cu_val = cu
         pert_val = pred
@@ -144,19 +133,20 @@ class CIU:
         fudged_image = image
 
         for x in sp_array:
-            fudged_image[segments == x] = (190, 190, 190)
+            fudged_image[segments == x] = self.background_color
 
-        if self.debug:
-          plt.imshow(fudged_image[0])
-          plt.title(f"Segments: {self.segments}, Compact: {self.compactness}, CI: {self.CI}")
-          plt.show()
+#        if self.debug:
+#          plt.imshow(fudged_image[0])
+#          plt.title(f"Segments: {self.segments}, Compact: {self.compactness}, CI: {self.CI}")
+#          plt.show()
 
         return fudged_image[0]
 
-    def CIU_Explanation(self):
+    def CIU_Explanation(self, image, ind_outputs = 1):
         strategy = self.strategy
-        image = self.image()
-        ind_outputs = 1
+        self.image = image
+        self.image_shape = image.shape # There has to be at least one image and all have to have same shape.
+        image = image.reshape(-1,self.image_shape[0],self.image_shape[1],self.image_shape[2])
         segments = self.segmented(image)
         all_sp = np.unique(segments)
         cu_base = (
@@ -186,7 +176,7 @@ class CIU:
                 raise ValueError("Unknown Strategy")
             fudged_images.append(self.perturbed_images(image, inps, segments))
 
-        predictions = self.model.predict_on_batch(np.vstack(fudged_images))
+        predictions = self.predict_function(np.vstack(fudged_images))
 
         for i in range(0, len(all_sp)):
 
@@ -226,6 +216,7 @@ class CIU:
             print(f"IND_DF: {sp_ind_df}")
             print(sp_ind)
 
-        image = self.make_superpixels_transparent(image, sp_ind, segments)
+        # make_superpixels_transparent apparently modifies the passed image, so we need to make a copy.
+        res_image = self.make_superpixels_transparent(np.copy(image), sp_ind, segments)
 
-        return image
+        return res_image
