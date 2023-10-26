@@ -17,7 +17,7 @@ The installation process is quite straightforward. Simply use `pip install` to o
 
 # Running
 
-Check out the [CIU_gastro_images.ipynb](CIU_gastro_images.ipynb) notebook for examples of how to explain results of gastro-enterological images, as reported in the paper [Explainable artificial intelligence for human decision support system in the medical domain](https://www.mdpi.com/2504-4990/3/3/37).  
+Check out the [CIU_gastro_images.ipynb](CIU_gastro_images.ipynb) notebook for examples of how to explain results of gastro-enterological images, as reported in the paper [Explainable artificial intelligence for human decision support system in the medical domain](https://www.mdpi.com/2504-4990/3/3/37). The original 3295 images in the Red Lesion Endoscopy data set are publicly available and can be retrieved from Coelho [https://rdm.inesctec.pt/dataset/nis-2018-003](https://rdm.inesctec.pt/dataset/nis-2018-003), last accessed on 26 October 2023.
 
 # Contributors
 
