@@ -14,209 +14,144 @@ class CIU:
         out_names,
         predict_function=None,
         background_color=(190,190,190),
-        normalize=True,
-        segments=50,
+        segments = None, 
+        nbr_segments=50,
         compactness=10,
         strategy="inverse",
-        CI=0.01,
-        CU=0.5,
         debug=False,
     ):
         """
         @param model: TF/Keras model to be used.
         @param list out_names: List of output class names to be used.
         @param predict.function: Function that takes a list of images and return a numpy.ndarray with output probabilities. 
-        @param bool normalize: Whether the image input will be normalized to values between 0 an 1.
-        @param int segments: The amount of target segments to be used by the SLIC algorithm. The default is 50.
+        @param background_color: Background color to use for "transparent", in RGB. The default is gray (190, 190, 190). 
+        In the future this will be modified for supporting more than one different colors, patterns or other perturbation
+        methods. 
+        @param segments: np.array of same dimensions as image, with segment index for every pixel. The default 
+        is "None", which signifies that the default SLIC method will be used for creating superpixels. 
+        @param int nbr_segments: The amount of target segments to be used by the SLIC algorithm. The default is 50.
         @param int compactness: The compactness of the segments accounting for proximity or RGB values. The default is 10
         and logarithmic.
         @param str strategy: Defines CIU strategy. Either "straight" or "inverse". The default is "inverse".
-        @param float CI: Defines CI threshold to be used. The default is 0.01.
-        @param float CU: Defines CU threshold to be used. The default is 0.?.
         @param bool debug: Displays variables for debugging purposes. The default is False.
         """
 
         self.model = model
         self.out_names = out_names
         self.predict_function = predict_function if predict_function is not None else model.predict_on_batch
-        self.background_color = np.array(background_color) # Easier to deal with np.array
-        if normalize:
-            self.background_color = self.background_color/255
-        self.normalize = normalize
+        self.background_color = background_color # Easier to deal with np.array
         self.segments = segments
+        self.nbr_segments = nbr_segments
         self.compactness = compactness
         self.strategy = strategy
-        self.CI = CI
-        self.CU = CU
         self.debug = debug
 
+        # Set internal object variables to default values.
+        self.original_image = None
         self.image = None
         self.superpixels = None
+        self.ciu_superpixels = None
 
-    def segmented(self, image):
-        self.superpixels = slic(
-            image,
-            n_segments=self.segments,
-            compactness=self.compactness,
-            # max_iter=85,
-            start_label=0,
-        )
-
-        #if self.debug:
-        #    for i in range(50):
-        #        fig = plt.figure("Superpixels -- %d segments" % 50)
-        #        ax = fig.add_subplot(1, 1, 1)
-        #        ax.imshow(mark_boundaries(image[0], segments[0]))
-        #        plt.axis("off")
-        #    plt.show()
-
-        return self.superpixels
-
-    def ciu_image_result(self, ci, cu, cmin, cmax, outval, out_names):
-        data = {
-            "out_names": out_names,
-            "CI": ci,
-            "CU": cu,
-            "cmin": cmin,
-            "cmax": cmax,
-            "outval": outval,
-        }
-
-        df = pd.DataFrame(data)
-        return df
-
-    def perturbed_images(self, image, ind_inputs_to_explain, segments):
-        if self.normalize:
-            image = image / 255
-
-        fudged_image = image
-
-        for x in ind_inputs_to_explain:
-              fudged_image[segments == x] = self.background_color
+    # The method to call for getting CIU values for all superpixels. It returns a 'dict' object. 
+    def Explain(self, image):
+        # Memorize image, store shape also
+        self.original_image = image
+        self.image = np.copy(self.original_image)
+        self.image_shape = self.image.shape
         
-        fudged_image_reshape = fudged_image.reshape(-1, self.image_shape[0], self.image_shape[1], self.image_shape[2])
+        # See if pixels are in [0,1] or in RGB and act accordingly
+        bg_colour = np.array(self.background_color)/255 if self.image.dtype == 'float32' else self.background_color
 
-        return fudged_image_reshape
-
-    def explain_rgb(self, image, cu, pred):
-        if self.normalize:
-            image = image / 255
-
-        cu_val = cu
-        pert_val = pred
-
-        if self.debug:
-            print(f"CuVal: {cu_val}")
-            print(f"Pert: {pert_val}")
-
-        cu_val_flat = cu_val.ravel()
-        pert_val_flat = pert_val.ravel()
-
-        minvals = np.stack((cu_val_flat, pert_val_flat), axis=1).min(axis=1)
-        maxvals = np.stack((cu_val_flat, pert_val_flat), axis=1).max(axis=1)
-
-        diff = maxvals - minvals
-
-        ci = diff
-
-        ci_s = 0.5 if diff.any() == 0 else (cu_val_flat - minvals) / diff
-
-        df_ciu_image_result = self.ciu_image_result(
-            ci, ci_s, minvals, maxvals, cu_val_flat, self.out_names
-        )
-
-        sorted_df = df_ciu_image_result.sort_values(by=["outval"], ascending=False)
-
-        return sorted_df
-
-    def make_superpixels_transparent(self, image, sp_array, segments):
-        fudged_image = image
-
-        for x in sp_array:
-            fudged_image[segments == x] = self.background_color
-
-#        if self.debug:
-#          plt.imshow(fudged_image[0])
-#          plt.title(f"Segments: {self.segments}, Compact: {self.compactness}, CI: {self.CI}")
-#          plt.show()
-
-        return fudged_image[0]
-
-    def CIU_Explanation(self, image, ind_outputs = 1):
-        strategy = self.strategy
-        self.image = image
-        self.image_shape = image.shape # There has to be at least one image and all have to have same shape.
-        image = image.reshape(-1,self.image_shape[0],self.image_shape[1],self.image_shape[2])
-        segments = self.segmented(image)
-        all_sp = np.unique(segments)
-        cu_base = (
-            self.model.predict_on_batch(image / 255)
-            if self.normalize
-            else self.model.predict_on_batch(image)
-        )
-
-        if self.debug:
-            print(all_sp)
-
-        ci_s = np.zeros((ind_outputs, len(all_sp)))
-        cu_s = np.zeros((ind_outputs, len(all_sp)))
-        cmins = np.zeros((ind_outputs, len(all_sp)))
-        cmaxs = np.zeros((ind_outputs, len(all_sp)))
+        # Find superpixels, unless the segments have been provided already
+        if self.segments is None:
+            self.superpixels = self.segmented(self.image)
+        else:
+            self.superpixels = self.segments
+        all_sp = np.unique(self.superpixels)
+        n_sp = len(all_sp)
         
+        # Necessary reshape for model predict, not so nice to have that here, 
+        # should still be abstracted away somehow.
+        dnn_img = self.image.reshape(-1, self.image_shape[0], self.image_shape[1], self.image_shape[2])
+        
+        # Initialise CIU result, begin with current output.
+        outvals = self.predict_function(dnn_img)
+        nbr_outputs = outvals.shape[1]
+        ci_s = np.zeros((nbr_outputs, n_sp))
+        cu_s = np.zeros((nbr_outputs, n_sp))
+        cmins = np.zeros((nbr_outputs, n_sp))
+        cmaxs = np.zeros((nbr_outputs, n_sp))
 
+        # Create perturbed images for all superpixels. 
+        # This will need to be modified when we support more perturbation options 
+        # than one background color (TO BE IMPLEMENTED)!
         fudged_images = []
-
-        for i in range(0, len(all_sp)):
-          
-            if strategy == "inverse":
+        for i in range(0, n_sp):
+            if self.strategy == "inverse":
                 inps = np.delete(all_sp, i)
-            elif strategy == "straight":
+            elif self.strategy == "straight":
                 inps = np.array([i])
             else:
                 raise ValueError("Unknown Strategy")
-            fudged_images.append(self.perturbed_images(image, inps, segments))
+            fudged_image = self.perturbed_images(inps, bg_colour)
+            fudged_image_reshape = fudged_image.reshape(-1, self.image_shape[0], self.image_shape[1], self.image_shape[2])
+            fudged_images.append(fudged_image_reshape)
 
         predictions = self.predict_function(np.vstack(fudged_images))
 
-        for i in range(0, len(all_sp)):
+        # Go through all superpixels and calculate CIU values.
+        for i in range(0, n_sp):
+            sp_vals = np.stack((outvals[0,:], predictions[i,:]), axis=1)
+            cmins[:,i] = sp_vals.min(axis=1)
+            cmaxs[:,i] = sp_vals.max(axis=1)
+            diff = cmaxs[:,i] - cmins[:,i]
+            ci = diff
+            cu = 0.5 if diff.any() == 0 else (outvals - cmins[:,i])/diff
+            if self.strategy == "inverse":
+                ci = 1 - ci
+            ci_s[:,i] = ci
+            cu_s[:,i] = cu
 
-            ciu = self.explain_rgb(image, cu_base, predictions[i])
+        cu_s = np.nan_to_num(cu_s, nan=0.5)
 
-            ci_s[:, i:i + 1] = ciu.iloc[0:ind_outputs, :]["CI"]
-            cu_s[:, i:i + 1] = ciu.iloc[0:ind_outputs, :]["CU"]
-            cmins[:, i:i + 1] = ciu.iloc[0:ind_outputs, :]["cmin"]
-            cmaxs[:, i:i + 1] = ciu.iloc[0:ind_outputs, :]["cmax"]
-
-        last_sp_ciu = {
-            "out_names": ciu.iloc[0:ind_outputs, :]["out_names"],
-            "out_vals": ciu.iloc[0:ind_outputs, :]["outval"],
-            "CI_final": ci_s,
-            "CU_final": cu_s,
-            "cmin_final": cmins,
-            "cmax_final": cmaxs,
+        self.ciu_superpixels = {
+            "outnames": self.out_names,
+            "outvals": outvals,
+            "CI": ci_s,
+            "CU": cu_s,
+            "cmin": cmins,
+            "cmax": cmaxs,
         }
 
-        last_sp_ciu["CU_final"] = np.nan_to_num(last_sp_ciu["CU_final"], nan=0.5)
-
-        ci_s = last_sp_ciu["CI_final"]
-        cu_s = last_sp_ciu["CU_final"]
-
-        ci_s_inverse = 1 - ci_s
-
-        sp_ind_df = pd.DataFrame(
-            {"ci_s_inverse": ci_s_inverse.ravel(), "CUs": cu_s.ravel()},
-            columns=["ci_s_inverse", "CUs"],
-        )
-
-        sp_ind = sp_ind_df.index[
-            (sp_ind_df["ci_s_inverse"] < self.CI) | (sp_ind_df["CUs"] <= self.CU)
-        ].tolist()
-
-        if self.debug:
-            print(f"IND_DF: {sp_ind_df}")
-            print(sp_ind)
-
-        # make_superpixels_transparent apparently modifies the passed image, so we need to make a copy.
-        res_image = self.make_superpixels_transparent(np.copy(image), sp_ind, segments)
-
+        return self.ciu_superpixels
+    
+    # Method that returns a version of the explained image that shows only superpixels
+    # with CI values equal or over "CI_limit" and CU values over "CU_limit".
+    def ImageInfluentialSegmentsOnly(self, ind_output=0, CI_limit=0.5, CU_limit=0.5):
+        ci_s = self.ciu_superpixels["CI"][ind_output,:]
+        cu_s = self.ciu_superpixels["CU"][ind_output,:]
+        sp_ind = np.where((ci_s < CI_limit) | (cu_s <= CU_limit))
+        res_image = self.make_superpixels_transparent(sp_ind[0])
         return res_image
+        
+    def segmented(self, image):
+        segments = slic(
+            image,
+            n_segments=self.nbr_segments,
+            compactness=self.compactness,
+            start_label=0,
+        )
+        return segments
+
+    def perturbed_images(self, ind_inputs_to_explain, background_color):
+        fudged_image = np.copy(self.image)
+        for x in ind_inputs_to_explain:
+              fudged_image[self.superpixels == x] = background_color
+        return fudged_image
+
+    def make_superpixels_transparent(self, sp_array):
+        bg_colour = np.array(self.background_color)/255 if self.original_image.dtype == 'float32' else self.background_color
+        fudged_image = np.copy(self.original_image)
+        for x in sp_array:
+            fudged_image[self.superpixels == x] = bg_colour
+        return fudged_image
