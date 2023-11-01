@@ -14,10 +14,11 @@ class CIU:
         out_names,
         predict_function=None,
         background_color=(190,190,190),
+        strategy = "straight",
+        neutralCU = 0.5, 
         segments = None, 
         nbr_segments=50,
         compactness=10,
-        strategy="inverse",
         debug=False,
     ):
         """
@@ -27,12 +28,15 @@ class CIU:
         @param background_color: Background color to use for "transparent", in RGB. The default is gray (190, 190, 190). 
         In the future this will be modified for supporting more than one different colors, patterns or other perturbation
         methods. 
+        @param str strategy: Defines CIU strategy. Either "straight" or "inverse". The default is "straight".
+        @param neutralCU: CU value that is considered "neutral" and that provides a limit between negative and 
+        positive influence in the "Contextual influence" calculation CIx(CU - neutralCU).
         @param segments: np.array of same dimensions as image, with segment index for every pixel. The default 
         is "None", which signifies that the default SLIC method will be used for creating superpixels. 
         @param int nbr_segments: The amount of target segments to be used by the SLIC algorithm. The default is 50.
         @param int compactness: The compactness of the segments accounting for proximity or RGB values. The default is 10
         and logarithmic.
-        @param str strategy: Defines CIU strategy. Either "straight" or "inverse". The default is "inverse".
+        @param str strategy: Defines CIU strategy. Either "straight" or "inverse". The default is "straight".
         @param bool debug: Displays variables for debugging purposes. The default is False.
         """
 
@@ -44,6 +48,7 @@ class CIU:
         self.nbr_segments = nbr_segments
         self.compactness = compactness
         self.strategy = strategy
+        self.neutralCU = neutralCU
         self.debug = debug
 
         # Set internal object variables to default values.
@@ -53,7 +58,15 @@ class CIU:
         self.ciu_superpixels = None
 
     # The method to call for getting CIU values for all superpixels. It returns a 'dict' object. 
-    def Explain(self, image):
+    def Explain(self, image, strategy=None):
+        """
+        @param str strategy: Defines CIU strategy. Either "straight" or "inverse". The default is "None", 
+        which causes self.strategy to be used instead.
+        """
+        # Check for overriding of strategy
+        if strategy is None:
+            strategy = self.strategy
+        
         # Memorize image, store shape also
         self.original_image = image
         self.image = np.copy(self.original_image)
@@ -79,6 +92,7 @@ class CIU:
         nbr_outputs = outvals.shape[1]
         ci_s = np.zeros((nbr_outputs, n_sp))
         cu_s = np.zeros((nbr_outputs, n_sp))
+        cinfl_s = np.zeros((nbr_outputs, n_sp))
         cmins = np.zeros((nbr_outputs, n_sp))
         cmaxs = np.zeros((nbr_outputs, n_sp))
 
@@ -87,9 +101,9 @@ class CIU:
         # than one background color (TO BE IMPLEMENTED)!
         fudged_images = []
         for i in range(0, n_sp):
-            if self.strategy == "inverse":
+            if strategy == "inverse":
                 inps = np.delete(all_sp, i)
-            elif self.strategy == "straight":
+            elif strategy == "straight":
                 inps = np.array([i])
             else:
                 raise ValueError("Unknown Strategy")
@@ -107,10 +121,11 @@ class CIU:
             diff = cmaxs[:,i] - cmins[:,i]
             ci = diff
             cu = 0.5 if diff.any() == 0 else (outvals - cmins[:,i])/diff
-            if self.strategy == "inverse":
+            if strategy == "inverse":
                 ci = 1 - ci
             ci_s[:,i] = ci
             cu_s[:,i] = cu
+            cinfl_s[:,i] = ci_s[:,i]*(cu_s[:,i] - self.neutralCU)
 
         cu_s = np.nan_to_num(cu_s, nan=0.5)
 
@@ -119,6 +134,7 @@ class CIU:
             "outvals": outvals,
             "CI": ci_s,
             "CU": cu_s,
+            "Cinfl": cinfl_s,
             "cmin": cmins,
             "cmax": cmaxs,
         }
@@ -126,11 +142,22 @@ class CIU:
         return self.ciu_superpixels
     
     # Method that returns a version of the explained image that shows only superpixels
-    # with CI values equal or over "CI_limit" and CU values over "CU_limit".
-    def ImageInfluentialSegmentsOnly(self, ind_output=0, CI_limit=0.5, CU_limit=0.5):
-        ci_s = self.ciu_superpixels["CI"][ind_output,:]
-        cu_s = self.ciu_superpixels["CU"][ind_output,:]
-        sp_ind = np.where((ci_s < CI_limit) | (cu_s <= CU_limit))
+    # with CI values equal or over "CI_limit" and CU values equal or over "CU_limit".
+    def ImageInfluentialSegmentsOnly(self, ind_output=0, Cinfl_limit=None, type = "why", CI_limit=0.5, CU_limit=0.51):
+        # Do based on CI and CU
+        if Cinfl_limit is None:
+            ci_s = self.ciu_superpixels["CI"][ind_output,:]
+            cu_s = self.ciu_superpixels["CU"][ind_output,:]
+            sp_ind = np.where((ci_s < CI_limit) | (cu_s < CU_limit))
+        else:
+            cinfl_s = self.ciu_superpixels["Cinfl"][ind_output,:]
+            if type == "why":
+                sp_ind = np.where(cinfl_s < Cinfl_limit)
+            elif type == "whynot":
+                sp_ind = np.where(cinfl_s > Cinfl_limit)
+            else:
+                raise ValueError("Unknown explanation type")
+            
         res_image = self.make_superpixels_transparent(sp_ind[0])
         return res_image
         
