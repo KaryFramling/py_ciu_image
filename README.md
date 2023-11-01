@@ -16,6 +16,8 @@ This package was fundamentally modified in October 2023 to make it general-purpo
 
 For the moment, there's no PyPI package of `py.ciu.image` so the best option is probably to clone this repository.  
 
+## Running
+
 A Jupyter notebook is provided that shows how to produce CIU explanations for Imagenet networks (VGG16 and Resnet-152 are used). The notebook is [CIU_Imagenet.ipynb](CIU_Imagenet.ipynb).
 
 Another Jupyter notebook goes through how gastroenterological images can be "explained" with CIU for bleeding and non-bleeding images, as reported in the paper [Explainable artificial intelligence for human decision support system in the medical domain](https://www.mdpi.com/2504-4990/3/3/37). The notebook is [CIU_gastro_images.ipynb](CIU_gastro_images.ipynb). The original 3295 images in the Red Lesion Endoscopy data set are publicly available and can be retrieved from Coelho [https://rdm.inesctec.pt/dataset/nis-2018-003](https://rdm.inesctec.pt/dataset/nis-2018-003), last accessed on 26 October 2023.
