@@ -1,3 +1,4 @@
+from typing import Any
 import tensorflow as tf
 import matplotlib.pyplot as plt
 from skimage.segmentation import slic, mark_boundaries
@@ -36,7 +37,6 @@ class CIU:
         @param int nbr_segments: The amount of target segments to be used by the SLIC algorithm. The default is 50.
         @param int compactness: The compactness of the segments accounting for proximity or RGB values. The default is 10
         and logarithmic.
-        @param str strategy: Defines CIU strategy. Either "straight" or "inverse". The default is "straight".
         @param bool debug: Displays variables for debugging purposes. The default is False.
         """
 
@@ -111,7 +111,7 @@ class CIU:
             fudged_image_reshape = fudged_image.reshape(-1, self.image_shape[0], self.image_shape[1], self.image_shape[2])
             fudged_images.append(fudged_image_reshape)
 
-        predictions = self.predict_function(np.vstack(fudged_images))
+        predictions = self.predict_function(np.vstackdistortion_kwds(fudged_images))
 
         # Go through all superpixels and calculate CIU values.
         for i in range(0, n_sp):
@@ -182,3 +182,123 @@ class CIU:
         for x in sp_array:
             fudged_image[self.superpixels == x] = bg_colour
         return fudged_image
+
+
+class SuperpixelPerturber:
+    def __init__(self, segmenter, strategy, distortion):
+        """
+        @param segmenter: Callable that takes an image and produces an np.array of with segment indices for every pixel.
+        @param strategy: Callable that takes an image and segmentation and returns a list order by segment containing lists of np.arrays indexing pixels to distorted.
+        @param distortion: Callable that take an image and a index of pixels and applies a distortion to the indexed pixels.
+        """
+        
+        self.segmenter = segmenter
+        self.strategy = strategy #TODO: In the future, consider making strategy masks define the strenght (between 1 and 0) of which a distortion is overlaid the original image.
+        self.distortion = distortion
+
+    def __call__(self, image, segmenter_kwds={}, strategy_kwds={}, distortion_kwds={}):
+        """
+        @param image: Image to return perturbed versions of for each segment.
+        @param segmenter_kwds: Dict with additional keyword arguments used by the segmenter.
+        @param strategy_kwds: Dict with additional keyword arguments used by the strategy.
+        @param distortion_kwds: Dict with additional keyword arguments used by the distortion.
+        """
+
+        #Clone image to not edit original
+        image = np.copy(image)
+
+        #Detect whether the image is in [0,1] or a  in [0,1,..,255]
+        float_image = self.image.dtype == 'float32' #TODO: Make this detection more generic
+
+        if not float_image:
+            image = image/255
+
+        #Segment the image
+        superpixels = self.segmenter(image, **segmenter_kwds)
+
+        #Create indices for where the images should be pertubed for each superpixel
+        pertubation_masks = self.strategy(image, superpixels, **strategy_kwds)
+
+        #Create pertubed images for each segment
+        perturbed_images = []
+        for segment_masks in pertubation_masks:
+            segment_pertubed_images = []
+            for image_mask in segment_masks:
+                segment_pertubed_images.append(self.distortion(image, image_mask))
+            perturbed_images.append(segment_pertubed_images)
+        
+        return (superpixels, perturbed_images)
+
+
+class SlicSegmenter:
+    def __init__(self, nbr_segments, compactness):
+        """
+        @param int nbr_segments: The amount of target segments to be used by the SLIC algorithm. The default is 50.
+        @param int compactness: The compactness of the segments accounting for proximity or RGB values. The default is 10
+        and logarithmic.
+        """
+        self.nbr_segments = nbr_segments
+        self.compactness = compactness
+
+    def __call__(self, image):
+        return slic(
+        image,
+        n_segments=self.nbr_segments,
+        compactness=self.compactness,
+        start_label=0,
+    )
+
+
+class EntireSegmentStrategy:
+    def __init__(self, inverse=False):
+        """
+        @param bool inverse: Whether to mask every pixel except in the current segment or every pixel in the current segment
+        """
+        self.inverse = inverse
+        self.a = 0 if inverse else 1
+        self.b = 1 if inverse else 0
+
+    def __call__(self, image, segments):
+        indices = []
+        segment_ids = np.unique(segments)
+        for id in segment_ids:
+            indices.append([np.where(segments==id,self.a,self.b)])
+        return indices
+
+
+class SingleColorDistortion:
+    def __init__(self, background_color):
+        """
+        @param background_color: Background color to use for "transparent", in RGB. The default is gray (190, 190, 190).
+        """
+        self.background_color = np.array(background_color)
+        self.background_color_float = self.background_color/255
+
+    def __call__(self, image, distortion_mask):
+        #Detect whether the image is in [0,1] or a  in [0,1,..,255]
+        color = self.background_color_float if self.image.dtype == 'float32' else self.background_color #TODO: Make this detection more generic
+        distorted_image = np.copy(image)
+        distorted_image[distortion_mask] = color
+        return distorted_image
+
+        #distorted_images = []
+        #for id_distortion_masks in distortion_masks:
+        #    id_distorted_images = []
+        #    for mask in id_distortion_masks:
+        #        distorted_image = np.copy(image)
+        #        distorted_image[mask] = color
+        #        id_distorted_images.append(distorted_image)
+        #    distorted_images.append(id_distorted_images)
+        #return distorted_images
+
+def SlicOcclusionPerturber(background_color=(190,190,190), strategy="straight", nbr_segments=50, compactness=10):
+    """
+    @param background_color: Background color to use for "transparent", in RGB. The default is gray (190, 190, 190). 
+    @param bool strategy: Defines whether the CIU strategy should be "inverse" or "straight". The default is "straight".
+    @param int nbr_segments: The amount of target segments to be used by the SLIC algorithm. The default is 50.
+    @param int compactness: The compactness of the segments accounting for proximity or RGB values. The default is 10 and logarithmic.
+    """
+    segmenter = SlicSegmenter(nbr_segments, compactness)
+    strategy = EntireSegmentStrategy(inverse=strategy=="inverse")
+    distortion = SingleColorDistortion(background_color)
+    return SuperpixelPerturber(segmenter, strategy, distortion)
