@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from skimage.segmentation import slic, mark_boundaries
 import pandas as pd
 import cv2
+import numbers
 import numpy as np
 np.seterr(divide="ignore", invalid="ignore")
 
@@ -14,42 +15,30 @@ class CIU:
         model,
         out_names,
         predict_function=None,
-        background_color=(190,190,190),
-        strategy = "straight",
-        neutralCU = 0.5, 
-        segments = None, 
-        nbr_segments=50,
-        compactness=10,
+        perturber = None,
+        neutralCU = 0.5,
         debug=False,
     ):
         """
         @param model: TF/Keras model to be used.
         @param list out_names: List of output class names to be used.
         @param predict.function: Function that takes a list of images and return a numpy.ndarray with output probabilities. 
-        @param background_color: Background color to use for "transparent", in RGB. The default is gray (190, 190, 190). 
-        In the future this will be modified for supporting more than one different colors, patterns or other perturbation
-        methods. 
-        @param str strategy: Defines CIU strategy. Either "straight" or "inverse". The default is "straight".
+        @param perturber: Callable that takes the image and returns a list of segmentation masks and a list of lists with
+        distorted images for each segmentation mask. The default is to use SlicOcclusionPerturber.
         @param neutralCU: CU value that is considered "neutral" and that provides a limit between negative and 
         positive influence in the "Contextual influence" calculation CIx(CU - neutralCU).
-        @param segments: np.array of same dimensions as image, with segment index for every pixel. The default 
-        is "None", which signifies that the default SLIC method will be used for creating superpixels. 
-        @param int nbr_segments: The amount of target segments to be used by the SLIC algorithm. The default is 50.
-        @param int compactness: The compactness of the segments accounting for proximity or RGB values. The default is 10
-        and logarithmic.
         @param bool debug: Displays variables for debugging purposes. The default is False.
         """
 
         self.model = model
         self.out_names = out_names
         self.predict_function = predict_function if predict_function is not None else model.predict_on_batch
-        self.background_color = background_color # Easier to deal with np.array
-        self.segments = segments
-        self.nbr_segments = nbr_segments
-        self.compactness = compactness
-        self.strategy = strategy
+        self.perturber = perturber
         self.neutralCU = neutralCU
         self.debug = debug
+
+        if self.perturber is None:
+            self.perturber = SlicOcclusionPerturber()
 
         # Set internal object variables to default values.
         self.original_image = None
@@ -58,71 +47,45 @@ class CIU:
         self.ciu_superpixels = None
 
     # The method to call for getting CIU values for all superpixels. It returns a 'dict' object. 
-    def Explain(self, image, strategy=None):
+    def Explain(self, image):
         """
-        @param str strategy: Defines CIU strategy. Either "straight" or "inverse". The default is "None", 
-        which causes self.strategy to be used instead.
-        """
-        # Check for overriding of strategy
-        if strategy is None:
-            strategy = self.strategy
+        @param image: The image to be explained
+        """ 
         
         # Memorize image, store shape also
         self.original_image = image
         self.image = np.copy(self.original_image)
         self.image_shape = self.image.shape
         
-        # See if pixels are in [0,1] or in RGB and act accordingly
-        bg_colour = np.array(self.background_color)/255 if self.image.dtype == 'float32' else self.background_color
-
-        # Find superpixels, unless the segments have been provided already
-        if self.segments is None:
-            self.superpixels = self.segmented(self.image)
-        else:
-            self.superpixels = self.segments
-        all_sp = np.unique(self.superpixels)
-        n_sp = len(all_sp)
-        
         # Necessary reshape for model predict, not so nice to have that here, 
         # should still be abstracted away somehow.
         dnn_img = self.image.reshape(-1, self.image_shape[0], self.image_shape[1], self.image_shape[2])
         
+        segment_masks, perturbed_images = self.perturber(dnn_img)
+        segment_masks = segment_masks[0]
+        perturbed_images = perturbed_images[0]
+        nbr_segments = len(segment_masks)
+
         # Initialise CIU result, begin with current output.
         outvals = self.predict_function(dnn_img)
         nbr_outputs = outvals.shape[1]
-        ci_s = np.zeros((nbr_outputs, n_sp))
-        cu_s = np.zeros((nbr_outputs, n_sp))
-        cinfl_s = np.zeros((nbr_outputs, n_sp))
-        cmins = np.zeros((nbr_outputs, n_sp))
-        cmaxs = np.zeros((nbr_outputs, n_sp))
-
-        # Create perturbed images for all superpixels. 
-        # This will need to be modified when we support more perturbation options 
-        # than one background color (TO BE IMPLEMENTED)!
-        fudged_images = []
-        for i in range(0, n_sp):
-            if strategy == "inverse":
-                inps = np.delete(all_sp, i)
-            elif strategy == "straight":
-                inps = np.array([i])
-            else:
-                raise ValueError("Unknown Strategy")
-            fudged_image = self.perturbed_images(inps, bg_colour)
-            fudged_image_reshape = fudged_image.reshape(-1, self.image_shape[0], self.image_shape[1], self.image_shape[2])
-            fudged_images.append(fudged_image_reshape)
-
-        predictions = self.predict_function(np.vstackdistortion_kwds(fudged_images))
+        ci_s = np.zeros((nbr_outputs, nbr_segments))
+        cu_s = np.zeros((nbr_outputs, nbr_segments))
+        cinfl_s = np.zeros((nbr_outputs, nbr_segments))
+        cmins = np.zeros((nbr_outputs, nbr_segments))
+        cmaxs = np.zeros((nbr_outputs, nbr_segments))
 
         # Go through all superpixels and calculate CIU values.
-        for i in range(0, n_sp):
-            sp_vals = np.stack((outvals[0,:], predictions[i,:]), axis=1)
+        for i in range(0, nbr_segments):
+            predictions = self.predict_function(perturbed_images[i])
+            sp_vals = np.stack((outvals, predictions), axis=1)
             cmins[:,i] = sp_vals.min(axis=1)
             cmaxs[:,i] = sp_vals.max(axis=1)
             diff = cmaxs[:,i] - cmins[:,i]
             ci = diff
             cu = 0.5 if diff.any() == 0 else (outvals - cmins[:,i])/diff
-            if strategy == "inverse":
-                ci = 1 - ci
+            #if strategy == "inverse":
+            #    ci = 1 - ci
             ci_s[:,i] = ci
             cu_s[:,i] = cu
             cinfl_s[:,i] = ci_s[:,i]*(cu_s[:,i] - self.neutralCU)
@@ -161,15 +124,6 @@ class CIU:
         res_image = self.make_superpixels_transparent(sp_ind[0])
         return res_image
         
-    def segmented(self, image):
-        segments = slic(
-            image,
-            n_segments=self.nbr_segments,
-            compactness=self.compactness,
-            start_label=0,
-        )
-        return segments
-
     def perturbed_images(self, ind_inputs_to_explain, background_color):
         fudged_image = np.copy(self.image)
         for x in ind_inputs_to_explain:
@@ -177,7 +131,7 @@ class CIU:
         return fudged_image
 
     def make_superpixels_transparent(self, sp_array):
-        bg_colour = np.array(self.background_color)/255 if self.original_image.dtype == 'float32' else self.background_color
+        bg_colour = np.array(self.background_color if issubclass(self.original_image.dtype.type, numbers.Integral) else (self.background_color)/255)
         fudged_image = np.copy(self.original_image)
         for x in sp_array:
             fudged_image[self.superpixels == x] = bg_colour
@@ -187,9 +141,9 @@ class CIU:
 class SuperpixelPerturber:
     def __init__(self, segmenter, strategy, distortion):
         """
-        @param segmenter: Callable that takes an image and produces an np.array of with segment indices for every pixel.
-        @param strategy: Callable that takes an image and segmentation and returns a list order by segment containing lists of np.arrays indexing pixels to distorted.
-        @param distortion: Callable that take an image and a index of pixels and applies a distortion to the indexed pixels.
+        @param segmenter: Callable that takes an image and produces a list of np.arrays of masks for each segment.
+        @param strategy: Callable that takes an image and a list of segment masks and returns a list with lists with distortion masks for each segment
+        @param distortion: Callable that take an image and a list of lists of distortion masks and returns the same lists with the image distorited in the masked areas.
         """
         
         self.segmenter = segmenter
@@ -207,27 +161,16 @@ class SuperpixelPerturber:
         #Clone image to not edit original
         image = np.copy(image)
 
-        #Detect whether the image is in [0,1] or a  in [0,1,..,255]
-        float_image = self.image.dtype == 'float32' #TODO: Make this detection more generic
-
-        if not float_image:
-            image = image/255
-
         #Segment the image
-        superpixels = self.segmenter(image, **segmenter_kwds)
+        segment_masks = self.segmenter(image, **segmenter_kwds)
 
         #Create indices for where the images should be pertubed for each superpixel
-        pertubation_masks = self.strategy(image, superpixels, **strategy_kwds)
+        pertubation_masks = self.strategy(image, segment_masks, **strategy_kwds)
 
         #Create pertubed images for each segment
-        perturbed_images = []
-        for segment_masks in pertubation_masks:
-            segment_pertubed_images = []
-            for image_mask in segment_masks:
-                segment_pertubed_images.append(self.distortion(image, image_mask))
-            perturbed_images.append(segment_pertubed_images)
+        perturbed_images = self.distortion(image, pertubation_masks)
         
-        return (superpixels, perturbed_images)
+        return (segment_masks, perturbed_images)
 
 
 class SlicSegmenter:
@@ -241,12 +184,20 @@ class SlicSegmenter:
         self.compactness = compactness
 
     def __call__(self, image):
-        return slic(
-        image,
-        n_segments=self.nbr_segments,
-        compactness=self.compactness,
-        start_label=0,
-    )
+        segments = slic(
+            image,
+            n_segments=self.nbr_segments,
+            compactness=self.compactness,
+            start_label=0,
+        )
+        segment_masks = []
+        for image_segments in segments:
+            image_masks = []
+            segment_ids = np.unique(image_segments)
+            for id in segment_ids:
+                image_masks.append(np.where(image_segments==id,1,0))
+            segment_masks.append(np.array(image_masks))
+        return segment_masks
 
 
 class EntireSegmentStrategy:
@@ -255,15 +206,16 @@ class EntireSegmentStrategy:
         @param bool inverse: Whether to mask every pixel except in the current segment or every pixel in the current segment
         """
         self.inverse = inverse
-        self.a = 0 if inverse else 1
-        self.b = 1 if inverse else 0
 
-    def __call__(self, image, segments):
-        indices = []
-        segment_ids = np.unique(segments)
-        for id in segment_ids:
-            indices.append([np.where(segments==id,self.a,self.b)])
-        return indices
+    def __call__(self, image, segment_masks):
+        distortion_masks = []
+        if self.inverse:
+            for image_masks in segment_masks:
+                distortion_masks.append(np.expand_dims(np.where(image_masks==0,1,0),axis=1))
+        else: 
+            for image_masks in segment_masks:
+                distortion_masks.append(np.expand_dims(image_masks,axis=1))
+        return distortion_masks
 
 
 class SingleColorDistortion:
@@ -274,22 +226,18 @@ class SingleColorDistortion:
         self.background_color = np.array(background_color)
         self.background_color_float = self.background_color/255
 
-    def __call__(self, image, distortion_mask):
+    def __call__(self, image, distortion_masks):
         #Detect whether the image is in [0,1] or a  in [0,1,..,255]
-        color = self.background_color_float if self.image.dtype == 'float32' else self.background_color #TODO: Make this detection more generic
-        distorted_image = np.copy(image)
-        distorted_image[distortion_mask] = color
-        return distorted_image
+        color = self.background_color if issubclass(image.dtype.type, numbers.Integral) else self.background_color_float
 
-        #distorted_images = []
-        #for id_distortion_masks in distortion_masks:
-        #    id_distorted_images = []
-        #    for mask in id_distortion_masks:
-        #        distorted_image = np.copy(image)
-        #        distorted_image[mask] = color
-        #        id_distorted_images.append(distorted_image)
-        #    distorted_images.append(id_distorted_images)
-        #return distorted_images
+        distorted_images = []
+        for id, image_distortion_masks in enumerate(distortion_masks):
+            indices = np.nonzero(image_distortion_masks)
+            distorted_image = np.tile(np.copy(image[id]), (image_distortion_masks.shape[0],image_distortion_masks.shape[1],1,1,1))
+            distorted_image[indices] = color
+            distorted_images.append(distorted_image)
+        return distorted_images
+
 
 def SlicOcclusionPerturber(background_color=(190,190,190), strategy="straight", nbr_segments=50, compactness=10):
     """
