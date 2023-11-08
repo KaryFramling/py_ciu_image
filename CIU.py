@@ -43,8 +43,8 @@ class CIU:
         # Set internal object variables to default values.
         self.original_image = None
         self.image = None
-        self.superpixels = None
-        self.ciu_superpixels = None
+        self.segments = None
+        self.ciu_segments = None
 
     # The method to call for getting CIU values for all superpixels. It returns a 'dict' object. 
     def Explain(self, image):
@@ -62,9 +62,10 @@ class CIU:
         dnn_img = self.image.reshape(-1, self.image_shape[0], self.image_shape[1], self.image_shape[2])
         
         segment_masks, perturbed_images = self.perturber(dnn_img)
-        segment_masks = segment_masks[0]
+        segment_masks = segment_masks[0] #TODO: Hardcoded to work with 1 image for now
         perturbed_images = perturbed_images[0]
         nbr_segments = len(segment_masks)
+        self.segments = segment_masks
 
         # Initialise CIU result, begin with current output.
         outvals = self.predict_function(dnn_img)
@@ -92,7 +93,7 @@ class CIU:
 
         cu_s = np.nan_to_num(cu_s, nan=0.5)
 
-        self.ciu_superpixels = {
+        self.ciu_segments = {
             "outnames": self.out_names,
             "outvals": outvals,
             "CI": ci_s,
@@ -102,18 +103,18 @@ class CIU:
             "cmax": cmaxs,
         }
 
-        return self.ciu_superpixels
+        return self.ciu_segments
     
     # Method that returns a version of the explained image that shows only superpixels
     # with CI values equal or over "CI_limit" and CU values equal or over "CU_limit".
     def ImageInfluentialSegmentsOnly(self, ind_output=0, Cinfl_limit=None, type = "why", CI_limit=0.5, CU_limit=0.51):
         # Do based on CI and CU
         if Cinfl_limit is None:
-            ci_s = self.ciu_superpixels["CI"][ind_output,:]
-            cu_s = self.ciu_superpixels["CU"][ind_output,:]
+            ci_s = self.ciu_segments["CI"][ind_output,:]
+            cu_s = self.ciu_segments["CU"][ind_output,:]
             sp_ind = np.where((ci_s < CI_limit) | (cu_s < CU_limit))
         else:
-            cinfl_s = self.ciu_superpixels["Cinfl"][ind_output,:]
+            cinfl_s = self.ciu_segments["Cinfl"][ind_output,:]
             if type == "why":
                 sp_ind = np.where(cinfl_s < Cinfl_limit)
             elif type == "whynot":
@@ -121,20 +122,14 @@ class CIU:
             else:
                 raise ValueError("Unknown explanation type")
             
-        res_image = self.make_superpixels_transparent(sp_ind[0])
+        res_image = self.make_superpixels_transparent(sp_ind[0])#TODO: Currently hardcoded for one image, make general in future
         return res_image
-        
-    def perturbed_images(self, ind_inputs_to_explain, background_color):
-        fudged_image = np.copy(self.image)
-        for x in ind_inputs_to_explain:
-              fudged_image[self.superpixels == x] = background_color
-        return fudged_image
 
-    def make_superpixels_transparent(self, sp_array):
-        bg_colour = np.array(self.background_color if issubclass(self.original_image.dtype.type, numbers.Integral) else (self.background_color)/255)
+    def make_superpixels_transparent(self, sp_array, bg_color=(190,190,190)):
+        bg_color = np.array(bg_color if issubclass(self.original_image.dtype.type, numbers.Integral) else bg_color/255)
         fudged_image = np.copy(self.original_image)
         for x in sp_array:
-            fudged_image[self.superpixels == x] = bg_colour
+            fudged_image[self.superpixels == x] = bg_color
         return fudged_image
 
 
