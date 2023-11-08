@@ -43,6 +43,7 @@ class CIU:
         # Set internal object variables to default values.
         self.original_image = None
         self.image = None
+        self.superpixels = None #TODO: Currenlty using superpixels despite being redundant and not as general
         self.segments = None
         self.ciu_segments = None
 
@@ -61,11 +62,13 @@ class CIU:
         # should still be abstracted away somehow.
         dnn_img = self.image.reshape(-1, self.image_shape[0], self.image_shape[1], self.image_shape[2])
         
-        segment_masks, perturbed_images = self.perturber(dnn_img)
+        superpixels, segment_masks, perturbed_images = self.perturber(dnn_img)
         segment_masks = segment_masks[0] #TODO: Hardcoded to work with 1 image for now
         perturbed_images = perturbed_images[0]
+        superpixels = superpixels[0]
         nbr_segments = len(segment_masks)
         self.segments = segment_masks
+        self.superpixels = superpixels
 
         # Initialise CIU result, begin with current output.
         outvals = self.predict_function(dnn_img)
@@ -112,24 +115,25 @@ class CIU:
         if Cinfl_limit is None:
             ci_s = self.ciu_segments["CI"][ind_output,:]
             cu_s = self.ciu_segments["CU"][ind_output,:]
-            sp_ind = np.where((ci_s < CI_limit) | (cu_s < CU_limit))
+            segments_to_visualize = np.where((ci_s < CI_limit) | (cu_s < CU_limit))
         else:
             cinfl_s = self.ciu_segments["Cinfl"][ind_output,:]
             if type == "why":
-                sp_ind = np.where(cinfl_s < Cinfl_limit)
+                segments_to_visualize = np.where(cinfl_s < Cinfl_limit)
             elif type == "whynot":
-                sp_ind = np.where(cinfl_s > Cinfl_limit)
+                segments_to_visualize = np.where(cinfl_s > Cinfl_limit)
             else:
                 raise ValueError("Unknown explanation type")
             
-        res_image = self.make_superpixels_transparent(sp_ind[0])#TODO: Currently hardcoded for one image, make general in future
+        res_image = self.make_superpixels_transparent(segments_to_visualize[0])
         return res_image
 
-    def make_superpixels_transparent(self, sp_array, bg_color=(190,190,190)):
+    def make_superpixels_transparent(self, segment_ids, bg_color=(190,190,190)):
         bg_color = np.array(bg_color if issubclass(self.original_image.dtype.type, numbers.Integral) else bg_color/255)
         fudged_image = np.copy(self.original_image)
-        for x in sp_array:
-            fudged_image[self.superpixels == x] = bg_color
+        for segment_id in segment_ids:
+            indices = np.nonzero(self.segments[segment_id])
+            fudged_image[indices] = bg_color
         return fudged_image
 
 
@@ -157,7 +161,7 @@ class SuperpixelPerturber:
         image = np.copy(image)
 
         #Segment the image
-        segment_masks = self.segmenter(image, **segmenter_kwds)
+        superpixels, segment_masks = self.segmenter(image, **segmenter_kwds)
 
         #Create indices for where the images should be pertubed for each superpixel
         pertubation_masks = self.strategy(image, segment_masks, **strategy_kwds)
@@ -165,7 +169,7 @@ class SuperpixelPerturber:
         #Create pertubed images for each segment
         perturbed_images = self.distortion(image, pertubation_masks)
         
-        return (segment_masks, perturbed_images)
+        return (superpixels, segment_masks, perturbed_images)
 
 
 class SlicSegmenter:
@@ -192,7 +196,7 @@ class SlicSegmenter:
             for id in segment_ids:
                 image_masks.append(np.where(image_segments==id,1,0))
             segment_masks.append(np.array(image_masks))
-        return segment_masks
+        return segments, segment_masks
 
 
 class EntireSegmentStrategy:
