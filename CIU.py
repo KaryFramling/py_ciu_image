@@ -17,7 +17,8 @@ class CIU:
         predict_function=None,
         perturber = None,
         neutralCU = 0.5,
-        debug=False,
+        debug = False,
+        inverse = False
     ):
         """
         @param model: TF/Keras model to be used.
@@ -28,6 +29,7 @@ class CIU:
         @param neutralCU: CU value that is considered "neutral" and that provides a limit between negative and 
         positive influence in the "Contextual influence" calculation CIx(CU - neutralCU).
         @param bool debug: Displays variables for debugging purposes. The default is False.
+        @param bool inverse: Whether to calculate ci as 1-ci, useful when a segment is perturbed by altering other segments.
         """
 
         self.model = model
@@ -36,9 +38,11 @@ class CIU:
         self.perturber = perturber
         self.neutralCU = neutralCU
         self.debug = debug
+        self.inverse = inverse
 
         if self.perturber is None:
-            self.perturber = SlicOcclusionPerturber()
+            strategy = "inverse" if inverse else "straight"
+            self.perturber = SlicOcclusionPerturber(strategy=strategy)
 
         # Set internal object variables to default values.
         self.original_image = None
@@ -88,8 +92,8 @@ class CIU:
             diff = cmaxs[:,i] - cmins[:,i]
             ci = diff
             cu = 0.5 if diff.any() == 0 else (outvals - cmins[:,i])/diff
-            #if strategy == "inverse":
-            #    ci = 1 - ci
+            if self.inverse:
+                ci = 1 - ci
             ci_s[:,i] = ci
             cu_s[:,i] = cu
             cinfl_s[:,i] = ci_s[:,i]*(cu_s[:,i] - self.neutralCU)
@@ -129,7 +133,7 @@ class CIU:
         return res_image
 
     def make_superpixels_transparent(self, segment_ids, bg_color=(190,190,190)):
-        bg_color = np.array(bg_color if issubclass(self.original_image.dtype.type, numbers.Integral) else bg_color/255)
+        bg_color = np.array(bg_color) if issubclass(self.original_image.dtype.type, numbers.Integral) else np.array(bg_color)/255
         fudged_image = np.copy(self.original_image)
         for segment_id in segment_ids:
             indices = np.nonzero(self.segments[segment_id])
@@ -198,6 +202,17 @@ class SlicSegmenter:
             segment_masks.append(np.array(image_masks))
         return segments, segment_masks
 
+class GridSegmenter:
+    def __init__(self, nbr_segments, compactness):
+        """
+        @param int nbr_segments: The amount of target segments to be used by the SLIC algorithm. The default is 50.
+        @param int compactness: The compactness of the segments accounting for proximity or RGB values. The default is 10
+        and logarithmic.
+        """
+        self.nbr_segments = nbr_segments
+        self.compactness = compactness
+
+    #TODO: Implement
 
 class EntireSegmentStrategy:
     def __init__(self, inverse=False):
