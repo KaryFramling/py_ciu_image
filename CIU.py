@@ -2,6 +2,7 @@ from typing import Any
 import tensorflow as tf
 import matplotlib.pyplot as plt
 from skimage.segmentation import slic, mark_boundaries
+from skimage.filters import gaussian
 import pandas as pd
 import cv2
 import numbers
@@ -116,29 +117,34 @@ class CIU:
     # with CI values equal or over "CI_limit" and CU values equal or over "CU_limit".
     def ImageInfluentialSegmentsOnly(self, ind_output=0, Cinfl_limit=None, type = "why", CI_limit=0.5, CU_limit=0.51):
         # Do based on CI and CU
+        influential_segments = self.get_influential_segments(ind_output, Cinfl_limit, type, CI_limit, CU_limit)
+        unfluential_segments = [np.where(s==0, 1, 0) for s in influential_segments]
+        color_distortion = SingleColorDistortion((190,190,190))
+        return np.squeeze(color_distortion(np.expand_dims(self.image, axis=0), unfluential_segments), axis=(0,1))[0]
+
+    
+    def get_influential_segments(self, ind_output=0, Cinfl_limit=None, type = "why", CI_limit=0.5, CU_limit=0.51):
+        # Do based on CI and CU
         if Cinfl_limit is None:
             ci_s = self.ciu_segments["CI"][ind_output,:]
             cu_s = self.ciu_segments["CU"][ind_output,:]
-            segments_to_visualize = np.where((ci_s < CI_limit) | (cu_s < CU_limit))
+            segments = np.where(np.logical_not((ci_s < CI_limit) | (cu_s < CU_limit)))
         else:
             cinfl_s = self.ciu_segments["Cinfl"][ind_output,:]
             if type == "why":
-                segments_to_visualize = np.where(cinfl_s < Cinfl_limit)
+                segments = np.where(np.logical_not(cinfl_s < Cinfl_limit))
             elif type == "whynot":
-                segments_to_visualize = np.where(cinfl_s > Cinfl_limit)
+                segments = np.where(np.logical_not(cinfl_s > Cinfl_limit))
             else:
                 raise ValueError("Unknown explanation type")
-            
-        res_image = self.make_superpixels_transparent(segments_to_visualize[0])
-        return res_image
-
-    def make_superpixels_transparent(self, segment_ids, bg_color=(190,190,190)):
-        bg_color = np.array(bg_color) if issubclass(self.original_image.dtype.type, numbers.Integral) else np.array(bg_color)/255
-        fudged_image = np.copy(self.original_image)
-        for segment_id in segment_ids:
-            indices = np.nonzero(self.segments[segment_id])
-            fudged_image[indices] = bg_color
-        return fudged_image
+        
+        influential_segments=np.zeros(self.segments[0].shape)
+        for id, segment in enumerate(self.segments[segments[0]]):
+            if id == 0:
+                influential_segments = segment
+            else:
+                influential_segments = np.where(segment==0, influential_segments, segment)
+        return [np.expand_dims(influential_segments, axis=(0,1))]
 
 
 class SuperpixelPerturber:
@@ -203,14 +209,11 @@ class SlicSegmenter:
         return segments, segment_masks
 
 class GridSegmenter:
-    def __init__(self, nbr_segments, compactness):
+    def __init__(self, size):
         """
-        @param int nbr_segments: The amount of target segments to be used by the SLIC algorithm. The default is 50.
-        @param int compactness: The compactness of the segments accounting for proximity or RGB values. The default is 10
-        and logarithmic.
+        @param int size:
         """
-        self.nbr_segments = nbr_segments
-        self.compactness = compactness
+        self.nbr_size = size
 
     #TODO: Implement
 
@@ -252,6 +255,31 @@ class SingleColorDistortion:
             distorted_images.append(distorted_image)
         return distorted_images
 
+class GaussianBlurDistortion:
+    def __init__(self, sigma, truncate=None, ksize=None):
+        """
+        @param float sigma: Std. dev. used by the Gaussian kernel used for blurring
+        @param float truncate: If set, truncates the Gaussian kernel after that many std. devs. (cannot be used with ksize)
+        @param int ksize: If set, truncates the Gaussian kernel to size (ksize, ksize) (cannot be used with truncate)
+        """
+        self.sigma = sigma
+        if not (truncate is None or ksize is None):
+            raise ValueError("Parameters truncate and ksize cannot both be set")
+        if truncate is None:
+            self.truncate = (((ksize-1)/2)-0.5)/sigma
+        else:
+            self.truncate = truncate
+
+    def __call__(self, image, distortion_masks):
+        distorted_images = []
+        for id, image_distortion_masks in enumerate(distortion_masks):
+            indices = np.nonzero(image_distortion_masks)
+            blurred_image = gaussian(np.copy(image[id]), sigma=self.sigma, truncate=self.truncate)
+            blurred_image = np.tile(blurred_image, (image_distortion_masks.shape[0],image_distortion_masks.shape[1],1,1,1))
+            distorted_image = np.tile(np.copy(image[id]), (image_distortion_masks.shape[0],image_distortion_masks.shape[1],1,1,1))
+            distorted_image[indices] = blurred_image[indices]
+            distorted_images.append(distorted_image)
+        return distorted_images
 
 def SlicOcclusionPerturber(background_color=(190,190,190), strategy="straight", nbr_segments=50, compactness=10):
     """
