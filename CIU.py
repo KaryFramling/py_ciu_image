@@ -50,6 +50,7 @@ class CIU:
         self.image = None
         self.superpixels = None #TODO: Currenlty using superpixels despite being redundant and not as general
         self.segments = None
+        self.masks = None
         self.ciu_segments = None
 
     # The method to call for getting CIU values for all superpixels. It returns a 'dict' object. 
@@ -67,12 +68,13 @@ class CIU:
         # should still be abstracted away somehow.
         dnn_img = self.image.reshape(-1, self.image_shape[0], self.image_shape[1], self.image_shape[2])
         
-        superpixels, segment_masks, perturbed_images = self.perturber(dnn_img)
+        superpixels, segment_masks, pertubation_masks, perturbed_images = self.perturber(dnn_img)
         segment_masks = segment_masks[0] #TODO: Hardcoded to work with 1 image for now
         perturbed_images = perturbed_images[0]
         superpixels = superpixels[0]
         nbr_segments = len(segment_masks)
         self.segments = segment_masks
+        self.masks = pertubation_masks
         self.superpixels = superpixels
 
         # Initialise CIU result, begin with current output.
@@ -115,12 +117,15 @@ class CIU:
     
     # Method that returns a version of the explained image that shows only superpixels
     # with CI values equal or over "CI_limit" and CU values equal or over "CU_limit".
-    def ImageInfluentialSegmentsOnly(self, ind_output=0, Cinfl_limit=None, type = "why", CI_limit=0.5, CU_limit=0.51):
+    def ImageInfluentialSegmentsOnly(self, ind_output=0, Cinfl_limit=None, type = "why", CI_limit=0.5, CU_limit=0.51, use_perturber=False):
         # Do based on CI and CU
         influential_segments = self.get_influential_segments(ind_output, Cinfl_limit, type, CI_limit, CU_limit)
         unfluential_segments = [np.where(s==0, 1, 0) for s in influential_segments]
-        color_distortion = SingleColorDistortion((190,190,190))
-        return np.squeeze(color_distortion(np.expand_dims(self.image, axis=0), unfluential_segments), axis=(0,1))[0]
+        if use_perturber:
+            distortion = self.perturber.distortion
+        else:
+            distortion = SingleColorDistortion((190,190,190))
+        return np.squeeze(distortion(np.expand_dims(self.image, axis=0), unfluential_segments), axis=(0,1))[0]
 
     
     def get_influential_segments(self, ind_output=0, Cinfl_limit=None, type = "why", CI_limit=0.5, CU_limit=0.51):
@@ -177,9 +182,9 @@ class SuperpixelPerturber:
         pertubation_masks = self.strategy(image, segment_masks, **strategy_kwds)
 
         #Create pertubed images for each segment
-        perturbed_images = self.distortion(image, pertubation_masks)
+        perturbed_images = self.distortion(image, pertubation_masks, **distortion_kwds)
         
-        return (superpixels, segment_masks, perturbed_images)
+        return (superpixels, segment_masks, pertubation_masks, perturbed_images)
 
 
 class SlicSegmenter:
@@ -204,7 +209,7 @@ class SlicSegmenter:
             image_masks = []
             segment_ids = np.unique(image_segments)
             for id in segment_ids:
-                image_masks.append(np.where(image_segments==id,1,0))
+                image_masks.append(np.where(image_segments==id,1.0,0.0))
             segment_masks.append(np.array(image_masks))
         return segments, segment_masks
 
@@ -218,20 +223,29 @@ class GridSegmenter:
     #TODO: Implement
 
 class EntireSegmentStrategy:
-    def __init__(self, inverse=False):
+    def __init__(self, inverse=False, fade_fun=None, **kwargs):
         """
         @param bool inverse: Whether to mask every pixel except in the current segment or every pixel in the current segment
+        @param fade_fun: Image transform applied to each segment to fade the segment border between 0 and 1
+        @param **kwargs: Key word arguments used by fade_fun
         """
         self.inverse = inverse
+        self.fade_fun = fade_fun
+        self.kwargs = kwargs
 
     def __call__(self, image, segment_masks):
         distortion_masks = []
         if self.inverse:
             for image_masks in segment_masks:
-                distortion_masks.append(np.expand_dims(np.where(image_masks==0,1,0),axis=1))
+                distortion_masks.append(np.expand_dims(np.where(image_masks==0,1.0,0.0),axis=1))
         else: 
             for image_masks in segment_masks:
                 distortion_masks.append(np.expand_dims(image_masks,axis=1))
+
+        if not self.fade_fun is None:
+            for image_masks in distortion_masks:
+                for mask in image_masks:
+                    mask[:] = self.fade_fun(mask, **self.kwargs)
         return distortion_masks
 
 
@@ -278,6 +292,44 @@ class GaussianBlurDistortion:
             blurred_image = np.tile(blurred_image, (image_distortion_masks.shape[0],image_distortion_masks.shape[1],1,1,1))
             distorted_image = np.tile(np.copy(image[id]), (image_distortion_masks.shape[0],image_distortion_masks.shape[1],1,1,1))
             distorted_image[indices] = blurred_image[indices]
+            distorted_images.append(distorted_image)
+        return distorted_images
+
+class TransformDistortion:
+    def __init__(self, transform_fun, **kwargs):
+        """
+        @param transform_fun: A function that takes an image as 1st param and applies a transform to it
+        @param **kwargs: All other params passed to transform_fun as keyword arguments
+        """
+        self.transform_fun = transform_fun
+        self.kwargs = kwargs
+
+    def __call__(self, image, distortion_masks):
+        distorted_images = []
+        for id, image_distortion_masks in enumerate(distortion_masks):
+            indices = np.nonzero(image_distortion_masks)
+            transformed_image = self.transform_fun(np.copy(image[id]), **self.kwargs)
+            transformed_image = np.tile(transformed_image, (image_distortion_masks.shape[0],image_distortion_masks.shape[1],1,1,1))
+            distorted_image = np.tile(np.copy(image[id]), (image_distortion_masks.shape[0],image_distortion_masks.shape[1],1,1,1))
+            distorted_image[indices] = transformed_image[indices]
+            distorted_images.append(distorted_image)
+        return distorted_images
+    
+class ReplaceImageDistortion:
+    def __init__(self, default_images=None):
+        """
+        @param default_images: The image(s) to be replace the indicated segments of the image
+        """
+        self.default_images = default_images
+
+    def __call__(self, image, distortion_masks):
+        distorted_images = []
+        for id, image_distortion_masks in enumerate(distortion_masks):
+            replacement_images = np.tile(np.copy(self.default_images), (image_distortion_masks.shape[0],image_distortion_masks.shape[1],1,1,1))
+            image_distortion_masks = np.tile(image_distortion_masks, (1,self.default_images.shape[0],1,1))
+            indices = np.nonzero(image_distortion_masks)
+            distorted_image = np.tile(np.copy(image[id]), (image_distortion_masks.shape[0],image_distortion_masks.shape[1],1,1,1))
+            distorted_image[indices] = replacement_images[indices]
             distorted_images.append(distorted_image)
         return distorted_images
 
