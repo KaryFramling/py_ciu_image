@@ -31,6 +31,7 @@ setup(
     author=AUTHOR,
     author_email=EMAIL,
     url=URL,
+    py_modules=['CIU'],
     packages=find_packages(),
     install_requires=INSTALL_REQUIRES,
     license='MIT', 
