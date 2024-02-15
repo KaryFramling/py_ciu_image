@@ -2,20 +2,16 @@
 This package implements the Contextual Importance and Utility (CIU) method.
 
 Classes: 
-    - :class:`ciu.CIU`: The CIU class implements the Contextual Importance and Utility method for Explainable AI. 
-    - :class:`ciu.PerturbationMinMaxEstimator.PerturbationMinMaxEstimator`: Class the finds minimal and maximal output values by perturbation of input value(s). This is the default class/method used by `CIU`.
-
-Functions: 
-    - `ciu.CIU.contrastive_ciu`: Function for calculating contrastive values from two CIU results. 
+    - :class:`CIUimage.CIUimage`: The CIUimage class implements the Contextual Importance and Utility method for explaining image classification. 
 
 Example:
 ::
 
     # Example code using the module
-    import ciu as ciu
-    CIU = ciu.CIU(model.predict_proba, ['Output Name(s)'], data=X_train)
-    CIUres = CIU.explain(instance)
-    print(CIUres)
+    import CIUimage as CIU
+    out_names = ["NonBleeding", "Bleeding"] # Can also be "None".
+    ciu_object = CIU.CIUimage(model, out_names)
+    ciu_sp_result = ciu_object.explain(img_to_xplain)
 """
 from .CIUimage import CIUimage
 

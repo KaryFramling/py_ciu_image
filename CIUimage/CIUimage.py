@@ -4,8 +4,7 @@ from skimage.segmentation import slic, mark_boundaries
 import pandas as pd
 import cv2
 import numpy as np
-np.seterr(divide="ignore", invalid="ignore")
-
+#np.seterr(divide="ignore", invalid="ignore")
 
 class CIUimage:
     def __init__(
@@ -22,22 +21,25 @@ class CIUimage:
         debug=False,
     ):
         """
-        @param model: TF/Keras model to be used.
-        @param list out_names: List of output class names to be used.
-        @param predict.function: Function that takes a list of images and return a numpy.ndarray with output probabilities. 
-        @param background_color: Background color to use for "transparent", in RGB. The default is gray (190, 190, 190). 
-        In the future this will be modified for supporting more than one different colors, patterns or other perturbation
-        methods. 
-        @param str strategy: Defines CIU strategy. Either "straight" or "inverse". The default is "straight".
-        @param neutralCU: CU value that is considered "neutral" and that provides a limit between negative and 
-        positive influence in the "Contextual influence" calculation CIx(CU - neutralCU).
-        @param segments: np.array of same dimensions as image, with segment index for every pixel. The default 
-        is "None", which signifies that the default SLIC method will be used for creating superpixels. 
-        @param int nbr_segments: The amount of target segments to be used by the SLIC algorithm. The default is 50.
-        @param int compactness: The compactness of the segments accounting for proximity or RGB values. The default is 10
-        and logarithmic.
-        @param str strategy: Defines CIU strategy. Either "straight" or "inverse". The default is "straight".
-        @param bool debug: Displays variables for debugging purposes. The default is False.
+        This class implements the Contextual Importance and Utility (CIU) explainable AI method for explaining 
+        image classifications. 
+
+        :param model: TF/Keras model to be used.
+        :param list out_names: List of output class names to be used.
+        :param predict.function: Function that takes a list of images and return a numpy.ndarray with output probabilities. 
+        :param background_color: Background color to use for "transparent", in RGB. The default is gray (190, 190, 190). 
+            In the future this will be modified for supporting more than one different colors, patterns or other perturbation
+            methods. 
+        :param str strategy: Defines CIU strategy. Either "straight" or "inverse". The default is "straight".
+        :param neutralCU: CU value that is considered "neutral" and that provides a limit between negative and 
+            positive influence in the "Contextual influence" calculation CIx(CU - neutralCU).
+        :param segments: np.array of same dimensions as image, with segment index for every pixel. The default 
+            is "None", which signifies that the default SLIC method will be used for creating superpixels. 
+        :param int nbr_segments: The amount of target segments to be used by the SLIC algorithm. The default is 50.
+        :param int compactness: The compactness of the segments accounting for proximity or RGB values. The default is 10
+            and logarithmic.
+        :param str strategy: Defines CIU strategy. Either "straight" or "inverse". The default is "straight".
+        :param bool debug: Displays variables for debugging purposes. The default is False.
         """
 
         self.model = model
@@ -58,9 +60,11 @@ class CIUimage:
         self.ciu_superpixels = None
 
     # The method to call for getting CIU values for all superpixels. It returns a 'dict' object. 
-    def Explain(self, image, strategy=None):
+    def explain(self, image, strategy=None):
         """
-        @param str strategy: Defines CIU strategy. Either "straight" or "inverse". The default is "None", 
+        Calculate CIU values for the given image. 
+
+        :param str strategy: Defines CIU strategy. Either "straight" or "inverse". The default is "None", 
         which causes self.strategy to be used instead.
         """
         # Check for overriding of strategy
@@ -143,7 +147,7 @@ class CIUimage:
     
     # Method that returns a version of the explained image that shows only superpixels
     # with CI values equal or over "CI_limit" and CU values equal or over "CU_limit".
-    def ImageInfluentialSegmentsOnly(self, ind_output=0, Cinfl_limit=None, type = "why", CI_limit=0.5, CU_limit=0.51):
+    def image_influential_segments_only(self, ind_output=0, Cinfl_limit=None, type = "why", CI_limit=0.5, CU_limit=0.51):
         # Do based on CI and CU
         if Cinfl_limit is None:
             ci_s = self.ciu_superpixels["CI"][ind_output,:]

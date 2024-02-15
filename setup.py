@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 # Package metadata
 NAME = 'py_ciu_image'  # Package name
 DESCRIPTION = 'Python implementation of the Contextual Importance and Utility (CIU) explainable AI method for image classification'
-VERSION = '0.1.0.2'  # Use Semantic Versioning (https://semver.org/)
+VERSION = '0.1.0.4'  # Use Semantic Versioning (https://semver.org/)
 AUTHOR = 'Kary Främling, Vlad Apopei, Rohit Saluja, ‚ Manik Madhikermi, Avleen Malhi'
 EMAIL = 'kary.framling@cs.umu.se'
 URL = 'https://github.com/KaryFramling/py_ciu_image'  # Repository URL
@@ -20,7 +20,7 @@ INSTALL_REQUIRES = [
 # Long description from README.md
 #with open('README.md', 'r') as f:
 #    LONG_DESCRIPTION = f.read()
-LONG_DESCRIPTION = 'Please read the README file'
+LONG_DESCRIPTION = 'Please read the README file on GitHub'
 
 setup(
     name=NAME,
