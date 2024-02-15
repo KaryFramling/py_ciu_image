@@ -7,7 +7,7 @@ import numpy as np
 np.seterr(divide="ignore", invalid="ignore")
 
 
-class CIU:
+class CIUimage:
     def __init__(
         self,
         model,
