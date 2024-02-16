@@ -11,27 +11,27 @@ class CIUimage:
     This class implements the Contextual Importance and Utility (CIU) explainable AI method for explaining 
     image classifications. 
 
-    :param model: TF/Keras model to be used.
-    :param list out_names: List of output class names to be used.
+    :param model: ML model to use.
+    :param list out_names: List of output class names to be used. 
     :param predict.function: Function that takes a list of images and return a numpy.ndarray with output probabilities. 
-    :param background_color: Background color to use for "transparent", in RGB. The default is gray (190, 190, 190). 
+        If this is `None`, then it is set to `model.predict_on_batch` by default.
+    :param background_color: Background color to use for "transparent", in RGB. 
         In the future this will be modified for supporting more than one different colors, patterns or other perturbation
         methods. 
-    :param str strategy: Defines CIU strategy. Either "straight" or "inverse". The default is "straight".
+    :param str strategy: Defines CIU strategy. Either "straight" or "inverse". 
     :param neutralCU: CU value that is considered "neutral" and that provides a limit between negative and 
         positive influence in the "Contextual influence" calculation CIx(CU - neutralCU).
     :param segments: np.array of same dimensions as image, with segment index for every pixel. The default 
-        is "None", which signifies that the default SLIC method will be used for creating superpixels. 
-    :param int nbr_segments: The amount of target segments to be used by the SLIC algorithm. The default is 50.
+        is `None`, which signifies that the default SLIC method will be used for creating superpixels. 
+    :param int nbr_segments: The amount of target segments to be used by the SLIC algorithm. 
     :param int compactness: The compactness of the segments accounting for proximity or RGB values. The default is 10
         and logarithmic.
-    :param str strategy: Defines CIU strategy. Either "straight" or "inverse". The default is "straight".
-    :param bool debug: Displays variables for debugging purposes. The default is False.
+    :param bool debug: Display variable values and messages for debugging purposes. 
     """
     def __init__(
         self,
         model,
-        out_names,
+        out_names=None,
         predict_function=None,
         background_color=(190,190,190),
         strategy = "straight",
@@ -64,8 +64,9 @@ class CIUimage:
         """
         Calculate CIU values for the given image. 
 
+        :param image: Image object to explain. 
         :param str strategy: Defines CIU strategy. Either "straight" or "inverse". The default is "None", 
-            which causes self.strategy to be used instead.
+            which causes self.strategy (from constructor) to be used instead.
         """
         # Check for overriding of strategy
         if strategy is None:
@@ -145,9 +146,22 @@ class CIUimage:
 
         return self.ciu_superpixels
     
-    # Method that returns a version of the explained image that shows only superpixels
-    # with CI values equal or over "CI_limit" and CU values equal or over "CU_limit".
     def image_influential_segments_only(self, ind_output=0, Cinfl_limit=None, type = "why", CI_limit=0.5, CU_limit=0.51):
+        """
+        Method that returns a version of the explained image that shows only superpixels above (for `type="why"`) 
+        or below (for `type="whynot"`) threshold values. Threshold values can be either on Contextual influence 
+        (`Cinfl_limit`) OR a combination of CI values equal or over `CI_limit` and CU values equal or 
+        over/under (depending on `type`) `CU_limit`.
+        
+        REMARK: Check proper operation with CI and CU; meanwhile, it's recommended to use `Cinfl_limit`
+        instead.
+
+        :param int ind_output: Index of output class to use. 
+        :param float Cinfl_limit: Contextual influence limit to use. If `None`, then use CI&CU limits instead. 
+        :param str type: Can take values "why" or "whynot".
+        :param float CI_limit: Inclusion limit (>=) for Contextual Importance (CI). 
+        :param float CU_limit: Inclusion limit (>=) for Contextual Utility (CU). 
+        """
         # Do based on CI and CU
         if Cinfl_limit is None:
             ci_s = self.ciu_superpixels["CI"][ind_output,:]
@@ -165,6 +179,7 @@ class CIUimage:
         res_image = self.make_superpixels_transparent(sp_ind[0])
         return res_image
         
+    # This method is mainly intended for internal use and therefore not documented.     
     def segmented(self, image):
         segments = slic(
             image,
@@ -174,12 +189,14 @@ class CIUimage:
         )
         return segments
 
+    # This method is mainly intended for internal use and therefore not documented.     
     def perturbed_images(self, ind_inputs_to_explain, background_color):
         fudged_image = np.copy(self.image)
         for x in ind_inputs_to_explain:
               fudged_image[self.superpixels == x] = background_color
         return fudged_image
 
+    # This method is mainly intended for internal use and therefore not documented.     
     def make_superpixels_transparent(self, sp_array):
         bg_colour = np.array(self.background_color)/255 if self.original_image.dtype == 'float32' else self.background_color
         fudged_image = np.copy(self.original_image)
