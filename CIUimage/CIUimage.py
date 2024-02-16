@@ -7,6 +7,27 @@ import numpy as np
 #np.seterr(divide="ignore", invalid="ignore")
 
 class CIUimage:
+    """
+    This class implements the Contextual Importance and Utility (CIU) explainable AI method for explaining 
+    image classifications. 
+
+    :param model: TF/Keras model to be used.
+    :param list out_names: List of output class names to be used.
+    :param predict.function: Function that takes a list of images and return a numpy.ndarray with output probabilities. 
+    :param background_color: Background color to use for "transparent", in RGB. The default is gray (190, 190, 190). 
+        In the future this will be modified for supporting more than one different colors, patterns or other perturbation
+        methods. 
+    :param str strategy: Defines CIU strategy. Either "straight" or "inverse". The default is "straight".
+    :param neutralCU: CU value that is considered "neutral" and that provides a limit between negative and 
+        positive influence in the "Contextual influence" calculation CIx(CU - neutralCU).
+    :param segments: np.array of same dimensions as image, with segment index for every pixel. The default 
+        is "None", which signifies that the default SLIC method will be used for creating superpixels. 
+    :param int nbr_segments: The amount of target segments to be used by the SLIC algorithm. The default is 50.
+    :param int compactness: The compactness of the segments accounting for proximity or RGB values. The default is 10
+        and logarithmic.
+    :param str strategy: Defines CIU strategy. Either "straight" or "inverse". The default is "straight".
+    :param bool debug: Displays variables for debugging purposes. The default is False.
+    """
     def __init__(
         self,
         model,
@@ -20,28 +41,7 @@ class CIUimage:
         compactness=10,
         debug=False,
     ):
-        """
-        This class implements the Contextual Importance and Utility (CIU) explainable AI method for explaining 
-        image classifications. 
-
-        :param model: TF/Keras model to be used.
-        :param list out_names: List of output class names to be used.
-        :param predict.function: Function that takes a list of images and return a numpy.ndarray with output probabilities. 
-        :param background_color: Background color to use for "transparent", in RGB. The default is gray (190, 190, 190). 
-            In the future this will be modified for supporting more than one different colors, patterns or other perturbation
-            methods. 
-        :param str strategy: Defines CIU strategy. Either "straight" or "inverse". The default is "straight".
-        :param neutralCU: CU value that is considered "neutral" and that provides a limit between negative and 
-            positive influence in the "Contextual influence" calculation CIx(CU - neutralCU).
-        :param segments: np.array of same dimensions as image, with segment index for every pixel. The default 
-            is "None", which signifies that the default SLIC method will be used for creating superpixels. 
-        :param int nbr_segments: The amount of target segments to be used by the SLIC algorithm. The default is 50.
-        :param int compactness: The compactness of the segments accounting for proximity or RGB values. The default is 10
-            and logarithmic.
-        :param str strategy: Defines CIU strategy. Either "straight" or "inverse". The default is "straight".
-        :param bool debug: Displays variables for debugging purposes. The default is False.
-        """
-
+ 
         self.model = model
         self.out_names = out_names
         self.predict_function = predict_function if predict_function is not None else model.predict_on_batch
@@ -65,7 +65,7 @@ class CIUimage:
         Calculate CIU values for the given image. 
 
         :param str strategy: Defines CIU strategy. Either "straight" or "inverse". The default is "None", 
-        which causes self.strategy to be used instead.
+            which causes self.strategy to be used instead.
         """
         # Check for overriding of strategy
         if strategy is None:
