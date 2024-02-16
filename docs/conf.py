@@ -50,8 +50,8 @@ exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
 #
 # Doing "pip install sphinx_rtd_theme" might be necessary here. 
 #
-#html_theme = 'alabaster'
-html_theme = 'sphinx_rtd_theme'
+html_theme = 'alabaster'
+#html_theme = 'sphinx_rtd_theme'
 html_theme_options = {
     'navigation_depth': 4,  # Set the depth of the navigation menu
     'collapse_navigation': False,  # Set to True to collapse the navigation menu by default
