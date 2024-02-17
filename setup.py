@@ -10,10 +10,10 @@ URL = 'https://github.com/KaryFramling/py_ciu_image'  # Repository URL
 
 # Define your package's dependencies
 INSTALL_REQUIRES = [
+  'numpy',
   'pandas', 
   'opencv-python',
   'matplotlib',
-  'tensorflow',
   'scikit-image',
 ]
 
