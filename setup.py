@@ -12,16 +12,13 @@ URL = 'https://github.com/KaryFramling/py_ciu_image'  # Repository URL
 INSTALL_REQUIRES = [
   'numpy',
   'pandas', 
-  #'skimage.segmentation',
-#  'opencv-python',
-#  'matplotlib',
   'scikit-image',
 ]
 
 # Long description from README.md
-#with open('README.md', 'r') as f:
-#    LONG_DESCRIPTION = f.read()
-LONG_DESCRIPTION = 'Please read the README file on GitHub'
+with open('README.md', 'r') as f:
+    LONG_DESCRIPTION = f.read()
+LONG_DESCRIPTION = 'Please read the README file'
 
 setup(
     name=NAME,
