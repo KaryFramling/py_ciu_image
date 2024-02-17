@@ -42,6 +42,9 @@ autosectionlabel_prefix_document = True
 
 autosummary_generate = True
 
+# The master toctree document.
+master_doc = "index"
+
 # Add any paths that contain templates here, relative to this directory.
 #templates_path = ['_templates']
 
@@ -73,11 +76,11 @@ html_theme = 'sphinx_rtd_theme'
 #
 html_theme_options = {
     #'canonical_url': '',
-    "logo_only": True,
+    #"logo_only": True,
     "display_version": True,
     "prev_next_buttons_location": "bottom",
     "style_external_links": False,
-    "style_nav_header_background": "#343131",
+    #"style_nav_header_background": "#343131",
     # Toc options
     "collapse_navigation": True,
     "sticky_navigation": True,
