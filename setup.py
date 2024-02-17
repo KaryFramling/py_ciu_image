@@ -12,9 +12,10 @@ URL = 'https://github.com/KaryFramling/py_ciu_image'  # Repository URL
 INSTALL_REQUIRES = [
   'numpy',
   'pandas', 
-  'opencv-python',
-  'matplotlib',
-  'scikit-image',
+  'skimage.segmentation',
+#  'opencv-python',
+#  'matplotlib',
+#  'scikit-image',
 ]
 
 # Long description from README.md

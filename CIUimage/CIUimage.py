@@ -1,8 +1,8 @@
-import tensorflow as tf
-import matplotlib.pyplot as plt
+#import tensorflow as tf
+#import matplotlib.pyplot as plt
 from skimage.segmentation import slic, mark_boundaries
 import pandas as pd
-import cv2
+#import cv2
 import numpy as np
 #np.seterr(divide="ignore", invalid="ignore")
 
