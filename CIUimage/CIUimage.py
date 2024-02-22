@@ -22,10 +22,18 @@ class CIUimage:
         inverse = False
     ):
         """
+        This class implements the Contextual Importance and Utility (CIU) explainable AI method for explaining 
+        image classifications.
+
         @param model: TF/Keras model to be used.
         @param list out_names: List of output class names to be used.
         @param predict.function: Function that takes a list of images and return a numpy.ndarray with output probabilities. 
-        @param perturber: Callable that takes the image and returns a list of segmentation masks and a list of lists with
+        @param perturber: Callable that takes images and returns a tuple of (superpixels, segment masks, pertubation masks, perturbed images).
+            superpixels is a list of ndarrays for each image of shape [H,W] indicating which superpixel that pixel belongs to (deprecated).
+            segement masks is a list of ndarrays for each image of shape [S,H,W] masking each pixel as 0 or 1 depending on if it belongs to each segment s.
+            pertubation masks is a list of ndarrays of shape [S,E,H,W] with E masks for each segment indicating which pixels should be perturbed.
+            perturbed images is a list of ndarrays for each image of shape [S,P,H,W,C] of P perturbed images for each segment s in S.
+        image and returns a list of segmentation masks and a list of lists with
         distorted images for each segmentation mask. The default is to use SlicOcclusionPerturber.
         @param neutralCU: CU value that is considered "neutral" and that provides a limit between negative and 
         positive influence in the "Contextual influence" calculation CIx(CU - neutralCU).
@@ -56,7 +64,9 @@ class CIUimage:
     # The method to call for getting CIU values for all superpixels. It returns a 'dict' object. 
     def explain(self, image):
         """
-        @param image: The image to be explained
+        Calculate CIU values for the given image. 
+
+        @param image: The image to be explained.
         """ 
         
         # Memorize image, store shape also
@@ -69,9 +79,9 @@ class CIUimage:
         dnn_img = self.image.reshape(-1, self.image_shape[0], self.image_shape[1], self.image_shape[2])
         
         superpixels, segment_masks, pertubation_masks, perturbed_images = self.perturber(dnn_img)
-        segment_masks = segment_masks[0] #TODO: Hardcoded to work with 1 image for now
+        superpixels = superpixels[0] #TODO: Hardcoded to work with 1 image for now
+        segment_masks = segment_masks[0]
         perturbed_images = perturbed_images[0]
-        superpixels = superpixels[0]
         nbr_segments = len(segment_masks)
         self.segments = segment_masks
         self.masks = pertubation_masks
@@ -151,17 +161,22 @@ class CIUimage:
                 influential_segments = np.where(segment==0, influential_segments, segment)
         return [np.expand_dims(influential_segments, axis=(0,1))]
 
-
 class SuperpixelPerturber:
     def __init__(self, segmenter, strategy, distortion):
         """
-        @param segmenter: Callable that takes an image and produces a list of np.arrays of masks for each segment.
-        @param strategy: Callable that takes an image and a list of segment masks and returns a list with lists with distortion masks for each segment
-        @param distortion: Callable that take an image and a list of lists of distortion masks and returns the same lists with the image distorited in the masked areas.
+        A wrapper class to create perturbers for CIUimage that generates perturbed images used in CIU calcualtion.
+
+        @param segmenter: Callable that takes images and produces a (superpixels, segment masks) tuple.
+            superpixels is a list of [H,W] ndarrays for each image indicating which superpixel each pixel belongs to.
+            segment masks is a list of [S,H,W] np.arrays for each image masking each segment in S with 0 and 1.
+        @param strategy: Callable that takes images and segment masks and returns pertubation masks.
+            pertubation masks is a list of [S,E,H,W] ndarrays for each image with E pertubation masks for each segment. 
+        @param distortion: Callable that takes images and pertubation masks and returns perturbed images.
+            perturbed images is a list of [S,P,H,W,C] ndarrays for each image containing P perturbed images for each segment.
         """
         
         self.segmenter = segmenter
-        self.strategy = strategy #TODO: In the future, consider making strategy masks define the strenght (between 1 and 0) of which a distortion is overlaid the original image.
+        self.strategy = strategy
         self.distortion = distortion
 
     def __call__(self, image, segmenter_kwds={}, strategy_kwds={}, distortion_kwds={}):
@@ -186,10 +201,11 @@ class SuperpixelPerturber:
         
         return (superpixels, segment_masks, pertubation_masks, perturbed_images)
 
-
 class SlicSegmenter:
     def __init__(self, nbr_segments, compactness):
         """
+        A segmenter that produces SLIC superpixels and segmentation masks when called with input images.
+
         @param int nbr_segments: The amount of target segments to be used by the SLIC algorithm. The default is 50.
         @param int compactness: The compactness of the segments accounting for proximity or RGB values. The default is 10
         and logarithmic.
@@ -198,6 +214,9 @@ class SlicSegmenter:
         self.compactness = compactness
 
     def __call__(self, image):
+        """
+        @param image: Image to segment.
+        """
         segments = slic(
             image,
             n_segments=self.nbr_segments,
@@ -225,15 +244,23 @@ class GridSegmenter:
 class EntireSegmentStrategy:
     def __init__(self, inverse=False, fade_fun=None, **kwargs):
         """
-        @param bool inverse: Whether to mask every pixel except in the current segment or every pixel in the current segment
-        @param fade_fun: Image transform applied to each segment to fade the segment border between 0 and 1
-        @param **kwargs: Key word arguments used by fade_fun
+        A strategy that produces a list of [S,1,H,W] ndarrays for each image containing pertubations masks for each segmentation s.
+        The pertubation masks are 1 for the pixels to be perturbed and 0 for those that don't.
+        The fade_fun parameter can cause values to be between 0 and 1 indicating weaker pertubation.
+
+        @param bool inverse: Whether to mask every pixel except in the current segment or every pixel in the current segment.
+        @param fade_fun: Image transform applied to each segment to fade the segment border between 0 and 1.
+        @param **kwargs: Key word arguments used by fade_fun.
         """
         self.inverse = inverse
         self.fade_fun = fade_fun
         self.kwargs = kwargs
 
     def __call__(self, image, segment_masks):
+        """
+        @param image: Unused. Needed by strategies used by SuperpixelPerturber.
+        @param segment_masks: A list of [S,H,W] np.arrays for each image masking each segment in S with 0 and 1.
+        """
         distortion_masks = []
         if self.inverse:
             for image_masks in segment_masks:
@@ -248,16 +275,22 @@ class EntireSegmentStrategy:
                     mask[:] = self.fade_fun(mask, **self.kwargs)
         return distortion_masks
 
-
 class SingleColorDistortion:
     def __init__(self, background_color):
         """
+        A distorter that produces a list of [S,P,H,W,C] ndarrays for each image containing perturbed versions of the images.
+        The perturbed images consist of the pixels indicated by the [S,P,H,W] pertubation mask being replaced by a static color.
+
         @param background_color: Background color to use for "transparent", in RGB. The default is gray (190, 190, 190).
         """
         self.background_color = np.array(background_color)
         self.background_color_float = self.background_color/255
 
     def __call__(self, image, distortion_masks):
+        """
+        @param image: The images to perturb.
+        @param distortion_masks: A list of [S,P,H,W] ndarrays for each image with P pertubation masks for each segment. 
+        """
         #Detect whether the image is in [0,1] or a  in [0,1,..,255]
         color = self.background_color if issubclass(image.dtype.type, numbers.Integral) else self.background_color_float
 
@@ -272,6 +305,9 @@ class SingleColorDistortion:
 class GaussianBlurDistortion:
     def __init__(self, sigma, truncate=None, ksize=None):
         """
+        A distorter that produces a list of [S,P,H,W,C] ndarrays for each image containing perturbed versions of the images.
+        The perturbed images consist the pixels indicated by the [S,P,H,W] pertubation mask being blurred with a Gaussian kernel.
+
         @param float sigma: Std. dev. used by the Gaussian kernel used for blurring
         @param float truncate: If set, truncates the Gaussian kernel after that many std. devs. (cannot be used with ksize)
         @param int ksize: If set, truncates the Gaussian kernel to size (ksize, ksize) (cannot be used with truncate)
@@ -285,6 +321,10 @@ class GaussianBlurDistortion:
             self.truncate = truncate
 
     def __call__(self, image, distortion_masks):
+        """
+        @param image: The images to perturb.
+        @param distortion_masks: A list of [S,P,H,W] ndarrays for each image with P pertubation masks for each segment. 
+        """
         distorted_images = []
         for id, image_distortion_masks in enumerate(distortion_masks):
             indices = np.nonzero(image_distortion_masks)
@@ -298,6 +338,9 @@ class GaussianBlurDistortion:
 class TransformDistortion:
     def __init__(self, transform_fun, **kwargs):
         """
+        A distorter that produces a list of [S,P,H,W,C] ndarrays for each image containing perturbed versions of the images.
+        The perturbed images consist of the pixels indicated by the [S,P,H,W] pertubation mask being transformed.
+        
         @param transform_fun: A function that takes an image as 1st param and applies a transform to it
         @param **kwargs: All other params passed to transform_fun as keyword arguments
         """
@@ -305,6 +348,10 @@ class TransformDistortion:
         self.kwargs = kwargs
 
     def __call__(self, image, distortion_masks):
+        """
+        @param image: The images to perturb.
+        @param distortion_masks: A list of [S,P,H,W] ndarrays for each image with P pertubation masks for each segment. 
+        """
         distorted_images = []
         for id, image_distortion_masks in enumerate(distortion_masks):
             indices = np.nonzero(image_distortion_masks)
@@ -318,11 +365,19 @@ class TransformDistortion:
 class ReplaceImageDistortion:
     def __init__(self, default_images=None):
         """
+        A distorter that produces a list of [S,P,H,W,C] ndarrays for each image containing perturbed versions of the images.
+        The perturbed images consist of the pixels indicated by the [S,E,H,W] pertubation mask being replaced by pixels in the indicated images.
+        The number of perturbed images per segment, P, is the number of pertubation masks per segment, E, times the number of replacement images.
+
         @param default_images: The image(s) to be replace the indicated segments of the image
         """
         self.default_images = default_images
 
     def __call__(self, image, distortion_masks):
+        """
+        @param image: The images to perturb.
+        @param distortion_masks: A list of [S,E,H,W] ndarrays for each image with P pertubation masks for each segment. 
+        """
         distorted_images = []
         for id, image_distortion_masks in enumerate(distortion_masks):
             replacement_images = np.tile(np.copy(self.default_images), (image_distortion_masks.shape[0],image_distortion_masks.shape[1],1,1,1))
@@ -335,6 +390,8 @@ class ReplaceImageDistortion:
 
 def SlicOcclusionPerturber(background_color=(190,190,190), strategy="straight", nbr_segments=50, compactness=10):
     """
+    Returns a instantiated SuperpixelPerturber that replicates the behavior of the original implementation of CIUimage pertubations.
+
     @param background_color: Background color to use for "transparent", in RGB. The default is gray (190, 190, 190). 
     @param bool strategy: Defines whether the CIU strategy should be "inverse" or "straight". The default is "straight".
     @param int nbr_segments: The amount of target segments to be used by the SLIC algorithm. The default is 50.
