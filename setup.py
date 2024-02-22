@@ -1,25 +1,23 @@
 from setuptools import setup, find_packages
 
 # Package metadata
-NAME = 'py.ciu.image'  # Package name
+NAME = 'py_ciu_image'  # Package name
 DESCRIPTION = 'Python implementation of the Contextual Importance and Utility (CIU) explainable AI method for image classification'
-VERSION = '0.0.2'  # Use Semantic Versioning (https://semver.org/)
-AUTHOR = 'Rohit Saluja, Vlad Apopei, Kary Främling‚ Manik Madhikermi, Avleen Malhi'
-EMAIL = 'kary.framling@umu.se'
-URL = 'https://github.com/KaryFramling/py.ciu.image'  # Repository URL
+VERSION = '0.1.1'  # Use Semantic Versioning (https://semver.org/)
+AUTHOR = 'Kary Främling, Vlad Apopei, Rohit Saluja, ‚ Manik Madhikermi, Avleen Malhi'
+EMAIL = 'kary.framling@cs.umu.se'
+URL = 'https://github.com/KaryFramling/py_ciu_image'  # Repository URL
 
 # Define your package's dependencies
 INSTALL_REQUIRES = [
+  'numpy',
   'pandas', 
-  'opencv-python',
-  'matplotlib',
-  'tensorflow',
   'scikit-image',
 ]
 
 # Long description from README.md
-#with open('README.md', 'r') as f:
-#    LONG_DESCRIPTION = f.read()
+with open('README.md', 'r') as f:
+    LONG_DESCRIPTION = f.read()
 LONG_DESCRIPTION = 'Please read the README file'
 
 setup(
@@ -36,7 +34,7 @@ setup(
     license='MIT', 
     classifiers=[
     #    'Development Status :: 3 - Alpha',
-    #    'Intended Audience :: Developers',
+        'Intended Audience :: Developers',
         'License :: OSI Approved :: MIT License',
         'Programming Language :: Python :: 3',
     #    'Programming Language :: Python :: 3.7',

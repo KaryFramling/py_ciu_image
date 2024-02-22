@@ -10,7 +10,7 @@ import numpy as np
 np.seterr(divide="ignore", invalid="ignore")
 
 
-class CIU:
+class CIUimage:
     def __init__(
         self,
         model,
@@ -54,7 +54,7 @@ class CIU:
         self.ciu_segments = None
 
     # The method to call for getting CIU values for all superpixels. It returns a 'dict' object. 
-    def Explain(self, image):
+    def explain(self, image):
         """
         @param image: The image to be explained
         """ 
@@ -117,7 +117,7 @@ class CIU:
     
     # Method that returns a version of the explained image that shows only superpixels
     # with CI values equal or over "CI_limit" and CU values equal or over "CU_limit".
-    def ImageInfluentialSegmentsOnly(self, ind_output=0, Cinfl_limit=None, type = "why", CI_limit=0.5, CU_limit=0.51, use_perturber=False):
+    def image_influential_segments_only(self, ind_output=0, Cinfl_limit=None, type = "why", CI_limit=0.5, CU_limit=0.51, use_perturber=False):
         # Do based on CI and CU
         influential_segments = self.get_influential_segments(ind_output, Cinfl_limit, type, CI_limit, CU_limit)
         unfluential_segments = [np.where(s==0, 1, 0) for s in influential_segments]
